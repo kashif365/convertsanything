@@ -1,0 +1,1699 @@
+================================================================================
+CONVERTSANYTHING - COMPREHENSIVE PROJECT DOCUMENTATION
+Ocean-Deep Architecture, Setup, and Deployment Guide
+================================================================================
+
+TABLE OF CONTENTS
+================================================================================
+1. Project Overview
+2. Technology Stack
+3. Directory Structure
+4. Local Development Setup
+5. Project Architecture (Deep Dive)
+6. Core Components and Workflows
+7. Routing System
+8. Database Configuration
+9. Python Integration
+10. Image Tools Architecture
+11. Document Tools Architecture
+12. Text Tools Architecture
+13. File Storage and Cleanup
+14. Environment Configuration
+15. Dependencies and Installation
+16. Production Deployment
+17. Troubleshooting and Maintenance
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+Project Name: Convertsanything
+Description: A Laravel 12-based web application offering free online file 
+             conversion tools for documents, images, and text processing.
+             
+Brand: Convertsanything (Teal theme: #14b8a6)
+Framework: Laravel 12 with Blade templating
+Frontend: Vanilla JavaScript + Plain CSS (Poppins font family)
+Python Support: Yes (for document processing and image layout extraction)
+Database: SQLite (local) or MySQL (production recommended)
+
+Core Services:
+- PDF to Word conversion (high-fidelity with PyMuPDF + OCR)
+- Word to PDF conversion (LibreOffice headless bridge)
+- PDF merge and split operations
+- Image format conversions (JPG, PNG, WebP, GIF, BMP, TIFF)
+- Image compression and resizing
+- Text analysis and case conversion
+- Word counting
+
+================================================================================
+2. TECHNOLOGY STACK
+================================================================================
+
+BACKEND (PHP/Laravel):
+  - Laravel Framework 12 (latest)
+  - PHP 8.1+ (recommended 8.2 or higher)
+  - Symfony Component (Process - for external command execution)
+  - PHPWord (PHP library for DOCX generation and manipulation)
+  - FPDI/FPDF (PDF merge and split operations)
+  - Intervention Image (Image manipulation and encoding)
+  - Carbon (Date/time handling)
+  - Composer (PHP package manager)
+
+PYTHON INTEGRATION:
+  - Python 3.10+ (stable, installed via Laragon or system)
+  - PyMuPDF (fitz) - PDF text/layout extraction
+  - RapidOCR with ONNX Runtime - OCR fallback for scanned PDFs
+  - Pillow (PIL) - Image processing
+  - LibreOffice Headless - Word to PDF conversion
+  
+FRONTEND:
+  - HTML5 with Blade templating
+  - Vanilla JavaScript (ES6+)
+  - Plain CSS (Poppins font from Google Fonts)
+  - No external JS frameworks (jQuery, Vue, React)
+  - No build tools required (direct browser execution)
+
+EXTERNAL TOOLS:
+  - LibreOffice (headless mode for Word→PDF)
+  - soffice command-line interface
+  - Python interpreter (subprocess execution)
+
+DEVELOPMENT ENVIRONMENT:
+  - Laragon (local development server with Apache, PHP, MySQL)
+  - Git for version control
+  - VS Code (recommended editor)
+
+================================================================================
+3. DIRECTORY STRUCTURE
+================================================================================
+
+cnproject/
+├── app/
+│   ├── Http/
+│   │   ├── Controllers/
+│   │   │   ├── PageController.php          # Route handlers for pages
+│   │   │   ├── Api/
+│   │   │   │   ├── DocumentController.php  # PDF/Word endpoints
+│   │   │   │   ├── PdfController.php       # Merge/split endpoints
+│   │   │   │   └── ImageController.php     # Image tool endpoints
+│   │   └── Middleware/
+│   ├── Services/
+│   │   ├── DocumentToolService.php         # Core PDF/Word conversion logic
+│   │   ├── ImageToolService.php            # Image processing service
+│   │   ├── TemporaryDownloadService.php    # File temp storage/cleanup
+│   │   └── TextToolService.php             # Text analysis/case conversion
+│   └── Providers/
+├── bootstrap/
+│   ├── app.php                             # App initialization
+│   └── providers.php                       # Service provider registration
+├── config/
+│   ├── app.php                             # App config
+│   ├── tools.php                           # Tool metadata & runtime settings
+│   └── [other Laravel configs]
+├── resources/
+│   ├── views/
+│   │   ├── layouts/
+│   │   │   └── app.blade.php               # Main layout wrapper
+│   │   ├── pages/
+│   │   │   ├── home.blade.php              # Homepage
+│   │   │   └── category.blade.php          # Category index
+│   │   ├── partials/
+│   │   │   ├── header.blade.php            # Nav and branding
+│   │   │   ├── footer.blade.php            # Footer
+│   │   │   ├── tool-layout-start.blade.php # Tool page wrapper start
+│   │   │   ├── tool-layout-end.blade.php   # Tool page wrapper end
+│   │   │   └── tool-card.blade.php         # Tool card component
+│   │   └── tools/
+│   │       ├── documents/
+│   │       │   ├── pdf-to-word.blade.php
+│   │       │   ├── word-to-pdf.blade.php
+│   │       │   ├── pdf-merge.blade.php
+│   │       │   └── pdf-split.blade.php
+│   │       ├── images/
+│   │       │   ├── jpg-to-png.blade.php
+│   │       │   ├── png-to-webp.blade.php
+│   │       │   ├── compressor.blade.php
+│   │       │   ├── resizer.blade.php
+│   │       │   └── image-converter.blade.php
+│   │       └── text/
+│   │           ├── word-counter.blade.php
+│   │           └── case-converter.blade.php
+├── routes/
+│   ├── web.php                             # Web routes (pages)
+│   ├── api.php                             # API routes (JSON endpoints)
+│   └── console.php                         # Artisan commands
+├── public/
+│   ├── index.php                           # Laravel entry point
+│   └── assets/
+│       ├── app.js                          # Global JavaScript
+│       ├── app.css                         # Global styles
+│       └── [future: static images/fonts]
+├── scripts/
+│   ├── pdf_to_word_layout.py               # PDF extraction script
+│   └── word_to_pdf_libreoffice.py          # LibreOffice bridge script
+├── storage/
+│   ├── app/
+│   │   ├── public/                         # Publicly accessible files
+│   │   └── temp/                           # Temporary downloads
+│   ├── framework/
+│   │   ├── cache/                          # Laravel cache
+│   │   ├── sessions/                       # Session storage
+│   │   └── views/                          # Compiled Blade views
+│   └── logs/
+│       └── laravel.log                     # Application logs
+├── vendor/                                 # Composer dependencies (DO NOT EDIT)
+├── .env                                    # Environment variables (LOCAL)
+├── .env.example                            # Example env file (COMMIT)
+├── .gitignore                              # Git ignore rules
+├── composer.json                           # PHP dependencies
+├── composer.lock                           # Locked dependency versions
+├── artisan                                 # Laravel CLI tool
+├── README.md                               # Project notes
+└── PROJECT_SETUP_AND_ARCHITECTURE.txt     # This file
+
+================================================================================
+4. LOCAL DEVELOPMENT SETUP
+================================================================================
+
+PREREQUISITES:
+  1. Windows 10+ or macOS/Linux
+  2. Laragon installed (includes Apache, PHP, MySQL)
+  3. Python 3.10+ installed on system path
+  4. LibreOffice installed (for Word→PDF conversion)
+  5. Git installed
+
+STEP-BY-STEP SETUP:
+
+4.1 CLONE OR EXTRACT PROJECT
+    $ cd e:\laragon\www
+    $ git clone <repo-url> cnproject
+    OR
+    $ Extract cnproject folder here
+
+4.2 NAVIGATE TO PROJECT
+    $ cd cnproject
+
+4.3 INSTALL PHP DEPENDENCIES
+    $ composer install
+    (This reads composer.json and installs all packages in vendor/)
+
+4.4 INSTALL PYTHON DEPENDENCIES
+    $ python -m pip install -r requirements.txt
+    
+    requirements.txt contains:
+    - pymupdf (fitz) - for PDF layout extraction
+    - rapidocr-onnxruntime - for OCR fallback
+    - pillow - for image processing
+    - numpy - for numerical operations
+
+4.5 COPY ENVIRONMENT FILE
+    $ copy .env.example .env
+    (or manually create .env with the variables below)
+
+4.6 CONFIGURE .env FILE
+    Key variables to set:
+    
+    APP_NAME=Convertsanything
+    APP_ENV=local
+    APP_DEBUG=true
+    APP_URL=http://localhost:3000  (or your Laragon port)
+    
+    DATABASE_CONNECTION=sqlite        (or mysql for production)
+    DATABASE_URL=sqlite:database.sqlite
+    
+    CONVERSION_TIMEOUT=180            (seconds for external processes)
+    PYTHON_PATH="C:\Python310\python.exe"  (or wherever Python is installed)
+    PYTHON_SCRIPTS_DIR="scripts"      (relative path to scripts/)
+    
+    LIBREOFFICE_PATH="C:\Program Files\LibreOffice\program\soffice.exe"
+    LIBREOFFICE_PROFILE_DIR="temp/libreoffice_profile"
+    
+    CACHE_DRIVER=file
+    SESSION_DRIVER=file
+    QUEUE_CONNECTION=sync
+
+4.7 GENERATE APP KEY
+    $ php artisan key:generate
+    (This creates a unique encryption key for sessions)
+
+4.8 CREATE SQLITE DATABASE (if not exists)
+    $ touch database/database.sqlite
+    (SQLite file-based database for local development)
+
+4.9 CONFIGURE STORAGE DIRECTORIES
+    Ensure these directories exist and are writable:
+    $ mkdir -p storage/app/public
+    $ mkdir -p storage/app/temp
+    $ mkdir -p storage/framework/cache
+    $ mkdir -p storage/framework/sessions
+    $ mkdir -p storage/logs
+
+4.10 START LARAGON
+    Open Laragon app → Click "Start All"
+    This starts Apache and any configured services
+
+4.11 ACCESS LOCAL APP
+    Navigate to: http://localhost:3000 (or your configured Laragon port)
+    OR use the domain configured in Laragon (if any)
+
+4.12 OPTIONAL: SETUP VSCODE ENVIRONMENT
+    Install extensions:
+    - PHP Intelephense (PHP code intellisense)
+    - Blade formatter (Blade template formatting)
+    - Prettier (JavaScript/CSS formatting)
+    - Python extension (for Python script editing)
+
+================================================================================
+5. PROJECT ARCHITECTURE (DEEP DIVE)
+================================================================================
+
+5.1 LAYERED ARCHITECTURE
+
+┌─────────────────────────────────────────────────────────────┐
+│                       Frontend (Browser)                     │
+│           HTML5 + Vanilla JS + Plain CSS                     │
+│  (Dropzone, Slider, Status, Results, Global Loader)          │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ HTTPS/JSON
+┌──────────────────────▼──────────────────────────────────────┐
+│               Laravel Web Framework                          │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ Routes (api.php, web.php)                             │  │
+│  │  ├─ /api/convert/pdf-to-word    → DocumentController  │  │
+│  │  ├─ /api/convert/word-to-pdf    → DocumentController  │  │
+│  │  ├─ /api/pdf/merge              → PdfController       │  │
+│  │  ├─ /api/pdf/split              → PdfController       │  │
+│  │  ├─ /api/images/jpg-to-png      → ImageController     │  │
+│  │  ├─ /api/images/png-to-webp     → ImageController     │  │
+│  │  ├─ /api/images/compress        → ImageController     │  │
+│  │  ├─ /api/images/resize          → ImageController     │  │
+│  │  ├─ /api/images/convert         → ImageController     │  │
+│  │  ├─ /api/text/analyze           → TextController      │  │
+│  │  ├─ /api/text/case-convert      → TextController      │  │
+│  │  ├─ /tools/* (pages)            → PageController      │  │
+│  │  └─ / (home)                    → PageController      │  │
+│  └────────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ Controllers (API RequestHandlers)                      │  │
+│  │  - Validate input (file size, type, CSRF)             │  │
+│  │  - Call appropriate Service                           │  │
+│  │  - Return JSON response                               │  │
+│  └────────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ Services (Business Logic)                             │  │
+│  │  - DocumentToolService (PDF/Word processing)          │  │
+│  │  - ImageToolService (image conversions)               │  │
+│  │  - TextToolService (text analysis)                    │  │
+│  │  - TemporaryDownloadService (file storage)            │  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ System Calls (Symfony Process)
+        ┌──────────────┴──────────────┐
+        │                             │
+┌───────▼──────────────┐   ┌──────────▼──────────────────┐
+│   Python Scripts     │   │  LibreOffice Headless       │
+│  (PDF extraction,    │   │  (Word→PDF conversion)      │
+│   OCR, Image proc)   │   │  (soffice command)          │
+└─────────────────────┘   └─────────────────────────────┘
+
+5.2 REQUEST-RESPONSE FLOW
+
+CLIENT REQUEST FLOW:
+1. User selects file in dropzone (HTML file input)
+2. JavaScript validates file (type, size, count)
+3. User adjusts parameters (quality slider, format, dimensions)
+4. User clicks "Convert" button
+5. JavaScript shows global loader overlay
+6. FormData posted to /api/{tool} endpoint
+   - Multipart form with files and parameters
+   - CSRF token in header
+7. Laravel route routes to appropriate controller
+8. Controller validates input:
+   - File MIME type
+   - File size
+   - Required parameters
+   - CSRF token
+9. If validation fails → return JSON error (422)
+10. If validation passes → Call Service method
+11. Service processes file (may call Python or external tool)
+12. Service stores result in temp directory
+13. Service returns JSON with download URL, preview, size info
+14. Controller returns JSON response
+15. JavaScript renders results:
+    - Shows download button
+    - Shows file size badges
+    - Hides loader overlay
+    - Shows success status
+16. User clicks Download
+17. Browser fetches file from /storage/app/temp/{filename}
+18. File downloads with proper headers
+
+ERROR HANDLING:
+- If processing fails → Service throws Exception
+- Controller catches → returns JSON error
+- JavaScript displays error message
+- Loader hidden
+- User can retry
+
+5.3 FILE FLOW DIAGRAM
+
+UPLOAD → STORE IN TMP → PROCESS → STORE OUTPUT → DOWNLOAD → CLEANUP
+  ↓        ↓               ↓          ↓            ↓         ↓
+Input   move_uploaded    Service  storage/app/  Serve as   Delete
+File    file to tmp/     logic    temp/         download   after
+        working          (Python)  {file.ext}    24hrs      24hrs
+
+================================================================================
+6. CORE COMPONENTS AND WORKFLOWS
+================================================================================
+
+6.1 LARAVEL ROUTING SYSTEM
+
+WEB ROUTES (routes/web.php):
+  - GET /                          → Home page
+  - GET /tools/{category}          → Category index
+  - GET /tools/{category}/{tool}   → Tool page (renders Blade template)
+  
+  These return HTML rendered from Blade templates.
+
+API ROUTES (routes/api.php):
+  - POST /api/convert/pdf-to-word  → DocumentController@pdfToWord
+  - POST /api/convert/word-to-pdf  → DocumentController@wordToPdf
+  - POST /api/pdf/merge            → PdfController@merge
+  - POST /api/pdf/split            → PdfController@split
+  - POST /api/images/jpg-to-png    → ImageController@jpgToPng
+  - POST /api/images/png-to-webp   → ImageController@pngToWebp
+  - POST /api/images/compress      → ImageController@compress
+  - POST /api/images/resize        → ImageController@resize
+  - POST /api/images/convert       → ImageController@convert
+  - POST /api/text/analyze         → TextController@analyze
+  - POST /api/text/case-convert    → TextController@caseConvert
+  
+  These return JSON responses.
+
+ROUTE STRUCTURE:
+  Routes are defined in routes/ directory.
+  Controllers are mapped with class@method syntax.
+  Middleware can be applied for CSRF protection, etc.
+
+6.2 CONTROLLER LAYER
+
+Controllers receive HTTP requests and coordinate response.
+
+EXAMPLE: DocumentController@wordToPdf
+
+  public function wordToPdf(Request $request)
+  {
+    // 1. VALIDATE INPUT
+    $request->validate([
+      'file' => 'required|file|mimes:doc,docx|max:52428800'
+    ]);
+    
+    // 2. EXTRACT UPLOADED FILE
+    $file = $request->file('file');
+    $tmpPath = storage_path('app/temp');
+    $fileName = uniqid() . '_' . $file->getClientOriginalName();
+    $filePath = $tmpPath . '/' . $fileName;
+    
+    // 3. MOVE FILE TO TEMP
+    $file->move($tmpPath, $fileName);
+    
+    // 4. CALL SERVICE
+    try {
+      $result = (new DocumentToolService())->wordToPdf($filePath);
+    } catch (Exception $e) {
+      return response()->json([
+        'success' => false,
+        'error' => $e->getMessage(),
+        'message' => 'Word to PDF conversion failed'
+      ], 422);
+    }
+    
+    // 5. RETURN SUCCESS RESPONSE
+    return response()->json([
+      'success' => true,
+      'message' => $result['message'],
+      'filename' => $result['filename'],
+      'downloadUrl' => $result['downloadUrl']
+    ]);
+  }
+
+6.3 SERVICE LAYER
+
+Services contain business logic and orchestrate operations.
+
+EXAMPLE FLOW: DocumentToolService->wordToPdf()
+
+  - Detects LibreOffice path from .env
+  - Creates isolated user profile for LibreOffice
+  - Calls Python bridge script via Symfony Process
+  - Monitors subprocess output (JSON status)
+  - If success: returns download URL and metadata
+  - If failure: throws exception with error details
+  - Cleans up temp files (keeps output for download)
+
+================================================================================
+7. DATABASE CONFIGURATION
+================================================================================
+
+LARAGON-BASED LOCAL DEVELOPMENT:
+
+Database Type: SQLite (File-based, no server needed)
+  Location: database/database.sqlite
+  Pros: No setup needed, lightweight
+  Cons: Not suitable for production, limited concurrency
+
+.env Configuration:
+  DB_CONNECTION=sqlite
+  DB_DATABASE=database.sqlite
+
+MYSQL/MARIADB SETUP (for more complex scenarios):
+
+  - Laragon includes MySQL
+  - Open phpMyAdmin via Laragon UI
+  - Create new database: "convertsanything"
+  
+.env Configuration:
+  DB_CONNECTION=mysql
+  DB_HOST=127.0.0.1
+  DB_PORT=3306
+  DB_DATABASE=convertsanything
+  DB_USERNAME=root
+  DB_PASSWORD=       (Laragon default: empty)
+
+PRODUCTION DATABASE:
+
+Recommended: MySQL 8.0+ or MariaDB 10.5+
+
+.env Configuration:
+  DB_CONNECTION=mysql
+  DB_HOST=your-db-server.com
+  DB_PORT=3306
+  DB_DATABASE=convertsanything_prod
+  DB_USERNAME=conv_user
+  DB_PASSWORD=strong_password_here
+
+DATABASE TABLES NEEDED (None currently):
+  This project doesn't require persistent database storage.
+  All processing is stateless (file upload → process → download).
+  If future features add user accounts/history, migrations will be needed.
+
+MIGRATIONS (if needed in future):
+  $ php artisan make:migration create_users_table
+  $ php artisan make:migration create_conversion_history_table
+  $ php artisan migrate
+
+================================================================================
+8. PYTHON INTEGRATION
+================================================================================
+
+8.1 WHERE PYTHON IS USED
+
+1. PDF to Word Conversion
+   - Script: scripts/pdf_to_word_layout.py
+   - Purpose: Extract text, layout, images from PDF
+   - Libraries: PyMuPDF (fitz), RapidOCR, Pillow
+   
+2. Word to PDF Conversion (Fallback)
+   - Script: scripts/word_to_pdf_libreoffice.py
+   - Purpose: Bridge to LibreOffice headless conversion
+   - Use when: Direct LibreOffice call via PHP has issues
+
+8.2 PYTHON SUBPROCESS EXECUTION
+
+Laravel calls Python via Symfony Process:
+
+  use Symfony\Component\Process\Process;
+  
+  // Create process
+  $process = new Process([
+    'python',
+    'scripts/pdf_to_word_layout.py',
+    '/path/to/input.pdf',
+    '/path/to/output.docx'
+  ]);
+  
+  // Set working directory
+  $process->setWorkingDirectory(base_path());
+  
+  // Inherit environment (critical for Python path)
+  $process->inheritEnvironmentVariables();
+  $process->setEnv(['PYTHONHASHSEED' => '0'] + $_ENV);
+  
+  // Set timeout
+  $process->setTimeout(180);
+  
+  // Wait for completion
+  $process->mustRun();
+  
+  // Get output
+  $output = $process->getOutput();
+
+8.3 PYTHON SCRIPT DETAILS
+
+PDF TO WORD LAYOUT EXTRACTION:
+  Input: /path/to/input.pdf
+  Output: /path/to/output.json (or directly to DOCX via PHPWord)
+  
+  Process:
+  1. Open PDF with PyMuPDF
+  2. For each page:
+     a. Extract text spans (with positions, font, size)
+     b. Extract images
+     c. Detect alignment and spacing
+     d. Group lines into paragraphs
+  3. If extraction fails: fall back to RapidOCR
+  4. Output JSON with structured data
+  5. Laravel reads JSON and generates DOCX via PHPWord
+
+WORD TO PDF LIBREOFFICE BRIDGE:
+  Input: /path/to/input.docx
+  Output: /path/to/output.pdf
+  
+  Process:
+  1. Detect soffice.exe location
+  2. Create isolated LibreOffice user profile
+  3. Launch headless: soffice --headless --convert-to pdf input.docx
+  4. Monitor process output
+  5. Parse result JSON for success/errors
+  6. Return output PDF path
+
+8.4 PYTHON DEPENDENCIES (requirements.txt)
+
+  pymupdf>=1.23.0              # PDF extraction (fitz)
+  rapidocr-onnxruntime>=1.3.0  # OCR for scanned PDFs
+  pillow>=10.0.0               # Image processing
+  numpy>=1.24.0                # Numerical operations (OCR dependency)
+
+INSTALLATION:
+  $ pip install -r requirements.txt
+  
+These must be installed on any machine running the app (local or production).
+
+================================================================================
+9. IMAGE TOOLS ARCHITECTURE
+================================================================================
+
+9.1 IMAGE TOOL ENDPOINTS AND FLOW
+
+All image tools follow a consistent pattern:
+
+ENDPOINT STRUCTURE:
+  POST /api/images/{tool}
+  
+  - jpg-to-png:   Convert JPEG to PNG (lossless)
+  - png-to-webp:  Convert PNG to WebP (lossy, smaller)
+  - compress:     Reduce file size (quality slider + format choice)
+  - resize:       Scale to dimensions (width, height, aspect lock)
+  - convert:      Convert any image to any format (universal)
+
+9.2 IMAGE PROCESSING SERVICE
+
+File: app/Services/ImageToolService.php
+
+Key Methods:
+  - jpgToPng(array $files): array
+  - pngToWebp(array $files, int $quality): array
+  - compress(array $files, int $quality, string $format): array
+  - resize(array $files, int $width, int $height, bool $lockAspect): array
+  - convertAny(array $files, string $format, int $quality): array
+
+PROCESSING FLOW:
+  1. Receive uploaded file(s)
+  2. Read image via Intervention Image (createImageBitmap)
+  3. Apply transformations:
+     - Format conversion (encodeByFormat)
+     - Quality adjustment (toWebp($quality))
+     - Resizing (scale() via Intervention)
+  4. Encode to target format:
+     - PNG: lossless (toPng())
+     - WebP: lossy with quality (toWebp($quality))
+     - JPEG: lossy with quality (toJpeg($quality))
+  5. Store output in temp directory
+  6. Calculate file sizes (input → output)
+  7. Return JSON with:
+     - filename
+     - downloadUrl
+     - previewUrl (for images)
+     - sizeLabel (e.g., "2.6 MB → 132.8 KB")
+     - fallback (PNG backup for lossy formats)
+
+9.3 INTERVENTION IMAGE LIBRARY
+
+Used for all image manipulations:
+  - Read images: $image = Image::read($path)
+  - Transform: $image->scale(width, height)
+  - Encode: $encoded = $image->toPng() / toWebp($q) / toJpeg($q)
+  - Save: file_put_contents($path, $encoded->toString())
+
+9.4 IMAGE TOOL UI FLOW (Frontend)
+
+1. User uploads images via dropzone
+2. JavaScript shows estimated output size (based on quality slider)
+3. User adjusts quality/format/dimensions
+4. Estimate updates in real-time using browser canvas encoding
+5. User clicks Convert
+6. Global loader shows (fixed overlay)
+7. Files sent to /api/images/{tool}
+8. Server processes images
+9. Response received with download URLs
+10. Results rendered showing:
+    - Preview thumbnail (if available)
+    - Before → After size (e.g., "2.6 MB → 132.8 KB")
+    - Download button
+    - Open button (for preview)
+    - Fallback button (if applicable)
+11. Global loader hidden
+12. User can download or try again
+
+9.5 SUPPORTED IMAGE FORMATS
+
+Input Formats:
+  - JPEG / JPG (image/jpeg, .jpg, .jpeg)
+  - PNG (image/png, .png)
+  - WebP (image/webp, .webp)
+  - GIF (image/gif, .gif)
+  - BMP (image/bmp, .bmp)
+  - TIFF (image/tiff, .tiff)
+
+Output Formats:
+  - PNG (lossless)
+  - JPEG (lossy, smaller)
+  - WebP (very lossy, smallest)
+
+Quality Ranges:
+  - Compressor: 20-95%
+  - PNG to WebP: 50-100%
+  - Image Converter: 20-100%
+  - Resizer: inherits source quality
+
+================================================================================
+10. DOCUMENT TOOLS ARCHITECTURE
+================================================================================
+
+10.1 DOCUMENT TOOL ENDPOINTS
+
+ENDPOINT STRUCTURE:
+  Conversion Tools:
+    - POST /api/convert/pdf-to-word  (single PDF file)
+    - POST /api/convert/word-to-pdf  (single Word file)
+  
+  Manipulation Tools:
+    - POST /api/pdf/merge            (multiple PDF files)
+    - POST /api/pdf/split            (single PDF file + page ranges)
+
+10.2 PDF TO WORD CONVERSION FLOW
+
+File: app/Services/DocumentToolService->pdfToWord()
+
+DEEP DIVE:
+  1. Input: PDF file path
+  2. Call Python script to extract layout:
+     $ python scripts/pdf_to_word_layout.py input.pdf output.json
+  3. Process output JSON:
+     {
+       "pages": [
+         {
+           "page_num": 1,
+           "paragraphs": [
+             {
+               "text": "Paragraph content",
+               "alignment": "left|center|right",
+               "font_size": 12,
+               "font_name": "Arial"
+             }
+           ],
+           "images": [
+             {
+               "filename": "page1_img1.png",
+               "path": "temp/page1_img1.png",
+               "width": 600,
+               "height": 400
+             }
+           ]
+         }
+       ]
+     }
+  4. Generate DOCX using PHPWord:
+     - Create PHPWord document
+     - For each page:
+       - For each paragraph: add heading/text with formatting
+       - For each image: add image with size
+     - Save to output.docx
+  5. Store in temp directory
+  6. Return JSON with download URL and file size
+
+PYTHON EXTRACTION DETAILS:
+  - Uses PyMuPDF (fitz) for fast extraction
+  - Detects text spans with positions
+  - Groups by Y-coordinate (paragraph detection)
+  - Falls back to OCR if text extraction fails (RapidOCR)
+  - Extracts images as PNG per page
+
+10.3 WORD TO PDF CONVERSION FLOW
+
+File: app/Services/DocumentToolService->wordToPdf()
+
+ARCHITECTURE:
+  Direct Method (if LibreOffice available):
+    1. Laravel detects soffice.exe path from .env
+    2. Creates isolated LibreOffice user profile
+    3. Calls Python bridge script:
+       $ python scripts/word_to_pdf_libreoffice.py \
+         --input input.docx \
+         --output output.pdf \
+         --soffice C:\Program Files\LibreOffice\program\soffice.exe
+    4. Python process:
+       - Detects soffice location
+       - Creates user profile: temp/libreoffice_profile
+       - Launches headless: soffice --headless \
+         --user-installation-dir=$(profile_dir) \
+         --convert-to pdf input.docx
+       - Emits JSON status updates
+       - Returns exit code (0 = success)
+    5. Laravel receives output PDF
+    6. Stores in temp directory
+    7. Returns download URL
+
+KEY POINTS:
+  - LibreOffice headless mode is used (no GUI)
+  - Requires isolated user profile (avoids lock conflicts)
+  - Timeout: 180 seconds (configurable in .env)
+  - Full environment inheritance is critical (Python path, etc.)
+
+10.4 PDF MERGE FLOW
+
+File: app/Services/DocumentToolService->mergePdfs()
+
+PROCESS:
+  1. Receive multiple PDF files from $_FILES
+  2. Order preservation:
+     - Files are processed in upload order
+     - User can reorder in UI (Up/Down buttons)
+  3. Use FPDI/FPDF to combine:
+     - Create new PDF (FPDF)
+     - For each input PDF:
+       - Read pages via FPDI
+       - Add each page to output PDF
+     - Save combined PDF
+  4. Post-process:
+     - Generate table of contents (optional)
+     - Flatten layers (no editability)
+  5. Store in temp directory
+  6. Return download URL
+
+TECHNOLOGY:
+  - FPDI (PDF Import): reads existing PDFs
+  - FPDF (PDF Generation): creates new PDF
+  - No re-encoding (preserves quality)
+
+10.5 PDF SPLIT FLOW
+
+File: app/Services/DocumentToolService->splitPdf()
+
+PROCESS:
+  1. Receive single PDF and page ranges:
+     - Range 1: pages 1-5
+     - Range 2: pages 6-10
+     - Range 3: pages 11-15 (etc.)
+  2. For each range:
+     - Extract specified pages using FPDI
+     - Create new PDF with those pages only
+     - Save with unique filename
+  3. Return multiple download URLs
+
+VALIDATION:
+  - Verify total pages in PDF
+  - Validate each range (start < end)
+  - Ensure no overlaps
+  - Return error if any range invalid
+
+================================================================================
+11. TEXT TOOLS ARCHITECTURE
+================================================================================
+
+11.1 TEXT TOOL ENDPOINTS
+
+ENDPOINT STRUCTURE:
+  Analysis Tools:
+    - POST /api/text/analyze         (word count, characters, etc.)
+    - POST /api/text/case-convert    (upper, lower, title, sentence)
+
+11.2 WORD COUNTER FLOW
+
+File: app/Services/TextToolService->analyze()
+
+PROCESS:
+  Input: plain text string
+  
+  Processing:
+  1. Count total characters (with spaces)
+  2. Count characters without spaces
+  3. Count words (split by whitespace)
+  4. Count sentences (split by . ! ?)
+  5. Count paragraphs (split by \n)
+  6. Calculate reading time (assuming 200 WPM)
+  7. Detect language (optional, basic heuristic)
+  
+  Output JSON:
+  {
+    "stats": [
+      {"label": "Characters", "value": "1,234"},
+      {"label": "Words", "value": "250"},
+      {"label": "Sentences", "value": "12"},
+      {"label": "Paragraphs", "value": "4"},
+      {"label": "Reading Time", "value": "1 min"}
+    ]
+  }
+
+FRONTEND BEHAVIOR:
+  1. User types in textarea
+  2. JavaScript debounces input (200ms)
+  3. Sends text to /api/text/analyze
+  4. Renders stats card grid
+  5. Updates live on each keystroke
+
+11.3 CASE CONVERTER FLOW
+
+File: app/Services/TextToolService->caseConvert()
+
+CONVERSIONS:
+  - Uppercase:    "hello" → "HELLO"
+  - Lowercase:    "HELLO" → "hello"
+  - Title Case:   "hello world" → "Hello World"
+  - Sentence:     "hello world" → "Hello world"
+  - aLtErNaTe:    "hello" → "HeLlO"
+  - Capitalize:   "hello world" → "Hello world"
+
+FRONTEND BEHAVIOR:
+  1. User enters text
+  2. Clicks case button (e.g., "Title Case")
+  3. JavaScript sends to /api/text/case-convert with mode
+  4. Server processes and returns converted text
+  5. JavaScript updates textarea
+  6. Copy button available to copy result
+
+================================================================================
+12. FILE STORAGE AND CLEANUP
+================================================================================
+
+12.1 TEMPORARY FILE STORAGE
+
+Directory: storage/app/temp/
+
+Purpose: Hold uploaded and converted files for download
+
+File Naming:
+  - Uploaded files: {uniqid}_{original_name}
+  - Output files: {uniqid}_output.{ext}
+  - Example: 652a4f9e2c3b_report.pdf
+
+12.2 FILE LIFECYCLE
+
+  1. USER UPLOADS FILE
+     → Move to storage/app/temp/
+     → Filename: {uniqid}_input_filename.ext
+  
+  2. FILE PROCESSING
+     → Read from storage/app/temp/
+     → Create output file in same directory
+     → Filename: {uniqid}_output.ext
+  
+  3. FILE DOWNLOAD
+     → User accesses /storage/app/temp/{filename}
+     → Browser downloads file
+     → HTTP headers set for download
+  
+  4. FILE CLEANUP
+     → Automatic deletion after 24 hours
+     → Manual cleanup: storage/app/temp/ cleared periodically
+     → Can be triggered: php artisan cleanup:temp
+
+12.3 CLEANUP SERVICE
+
+File: app/Services/TemporaryDownloadService.php
+
+Cleanup Process:
+  - Scan storage/app/temp/ directory
+  - For each file:
+    - Check modification time
+    - If older than 24 hours: delete
+  - Log cleanup actions
+  - Prevent storage bloat
+
+MANUAL CLEANUP:
+  Option 1: Delete directory contents manually
+    $ rm -rf storage/app/temp/* (Linux/Mac)
+    $ del storage/app/temp/* (Windows)
+  
+  Option 2: Create Artisan command
+    $ php artisan cleanup:temp
+
+12.4 DOWNLOAD SECURITY
+
+Considerations:
+  - No path traversal attacks (validate filename)
+  - Use Laravel's storage helpers
+  - Set proper MIME types
+  - Set download headers
+  - Log downloads (optional)
+
+Implementation:
+  public function download($filename)
+  {
+    // Validate filename (only alphanumeric + underscores)
+    if (!preg_match('/^[a-zA-Z0-9_\-.]+$/', $filename)) {
+      abort(404);
+    }
+    
+    $path = storage_path("app/temp/$filename");
+    
+    // Verify file exists
+    if (!file_exists($path)) {
+      abort(404);
+    }
+    
+    // Serve file with download headers
+    return response()->download($path);
+  }
+
+================================================================================
+13. ENVIRONMENT CONFIGURATION
+================================================================================
+
+13.1 LOCAL ENVIRONMENT (.env)
+
+APP_NAME=Convertsanything
+APP_ENV=local
+APP_DEBUG=true
+APP_URL=http://localhost:3000
+
+# Database (SQLite for local)
+DB_CONNECTION=sqlite
+DB_DATABASE=database/database.sqlite
+
+# File Storage
+STORAGE_DISK=local
+TEMP_DIRECTORY=storage/app/temp
+
+# Python Configuration
+PYTHON_PATH="C:\Python310\python.exe"
+PYTHON_SCRIPTS_DIR="scripts"
+CONVERSION_TIMEOUT=180
+
+# LibreOffice Configuration
+LIBREOFFICE_PATH="C:\Program Files\LibreOffice\program\soffice.exe"
+LIBREOFFICE_PROFILE_DIR="temp/libreoffice_profile"
+
+# Caching
+CACHE_DRIVER=file
+SESSION_DRIVER=file
+QUEUE_CONNECTION=sync
+
+# Security
+APP_KEY=base64:xxxxxxxxxxxxxxxxxxxxxxxxxxxxx (generated via php artisan key:generate)
+CSRF_TOKEN=true
+
+13.2 PRODUCTION ENVIRONMENT (.env)
+
+APP_NAME=Convertsanything
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://convertsanything.com
+
+# Database (MySQL)
+DB_CONNECTION=mysql
+DB_HOST=db.example.com
+DB_PORT=3306
+DB_DATABASE=convertsanything_prod
+DB_USERNAME=conv_user
+DB_PASSWORD=strong_password_here
+
+# File Storage (use external storage)
+STORAGE_DISK=s3  (or local with backup)
+AWS_ACCESS_KEY_ID=xxxxx
+AWS_SECRET_ACCESS_KEY=xxxxx
+AWS_DEFAULT_REGION=us-east-1
+AWS_BUCKET=convertsanything-files
+
+# Python Configuration (absolute paths)
+PYTHON_PATH="/usr/bin/python3"
+PYTHON_SCRIPTS_DIR="/var/www/convertsanything/scripts"
+CONVERSION_TIMEOUT=180
+
+# LibreOffice Configuration
+LIBREOFFICE_PATH="/usr/bin/soffice"
+LIBREOFFICE_PROFILE_DIR="/tmp/libreoffice_profile"
+
+# Caching (use Redis)
+CACHE_DRIVER=redis
+REDIS_HOST=127.0.0.1
+REDIS_PASSWORD=null
+REDIS_PORT=6379
+
+# Session (use Redis)
+SESSION_DRIVER=redis
+
+# Queue (use background job queue)
+QUEUE_CONNECTION=redis
+
+# Security (strong key, generated on production)
+APP_KEY=base64:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+CSRF_TOKEN=true
+
+13.3 ENVIRONMENT REQUIREMENTS
+
+LOCAL DEVELOPMENT:
+  - Windows 10+ or macOS/Linux
+  - PHP 8.1+ via Laragon
+  - Python 3.10+
+  - LibreOffice (any version)
+  - SQLite (included with PHP)
+  - Composer
+  - ~500MB disk space (for vendor + Python deps)
+
+PRODUCTION SERVER:
+  - Linux server (Ubuntu 20.04+ recommended)
+  - PHP 8.2+ (CLI and FPM)
+  - Python 3.10+
+  - LibreOffice server package
+  - MySQL 8.0+ or PostgreSQL 12+
+  - Redis (for caching/sessions)
+  - Nginx or Apache
+  - SSL certificate
+  - ~2GB disk space minimum
+  - 2+ CPU cores
+  - 2GB+ RAM
+
+================================================================================
+14. DEPENDENCIES AND INSTALLATION
+================================================================================
+
+14.1 PHP DEPENDENCIES (Composer)
+
+File: composer.json
+
+Key Packages:
+  - laravel/framework: 12.x    (Core framework)
+  - symfony/process: *         (Execute subprocesses)
+  - phpoffice/phpword: *       (Generate DOCX files)
+  - setasign/fpdi: *           (PDF manipulation)
+  - setasign/fpdf: *           (PDF generation)
+  - intervention/image: 3.x    (Image manipulation)
+  - nesbot/carbon: *           (DateTime handling)
+
+Installation:
+  $ composer install
+  
+  This creates:
+  - vendor/ directory (do NOT commit)
+  - composer.lock file (COMMIT this)
+
+14.2 PYTHON DEPENDENCIES (pip)
+
+File: requirements.txt
+
+Key Packages:
+  pymupdf>=1.23.0              # PDF extraction
+  rapidocr-onnxruntime>=1.3.0  # OCR
+  pillow>=10.0.0               # Image processing
+  numpy>=1.24.0                # Numerical operations
+
+Installation:
+  $ pip install -r requirements.txt
+  
+  Or individually:
+  $ pip install pymupdf rapidocr-onnxruntime pillow numpy
+
+14.3 SYSTEM DEPENDENCIES
+
+Required on Production:
+  - LibreOffice (server package)
+  - Python development headers
+  - Image libraries (libpng, libjpeg, etc.)
+
+Ubuntu/Debian Installation:
+  $ sudo apt update
+  $ sudo apt install -y libreoffice python3-dev libpng-dev libjpeg-dev
+
+14.4 LARAGON SETUP (Windows Local Development)
+
+Laragon bundled packages:
+  - Apache 2.4
+  - PHP 8.x (multiple versions available)
+  - MySQL 8.0
+  - MariaDB 10.5
+  - Composer
+  - Node.js
+  - Git
+
+Local Setup:
+  1. Install Laragon from laragon.org
+  2. Start Laragon (Start All button)
+  3. Add project to www/ folder
+  4. Access via browser
+
+================================================================================
+15. PRODUCTION DEPLOYMENT
+================================================================================
+
+15.1 DEPLOYMENT CHECKLIST
+
+Pre-Deployment:
+  ☐ All tests pass locally
+  ☐ Database migrations reviewed
+  ☐ Environment variables configured
+  ☐ SSL certificate obtained and configured
+  ☐ Backup strategy in place
+  ☐ Monitoring tools configured
+  ☐ CDN/cache headers configured
+
+Deployment Steps:
+  1. Connect to production server via SSH
+  2. Navigate to app directory
+  3. Pull latest code: git pull origin main
+  4. Install dependencies: composer install --no-dev
+  5. Install Python deps: pip install -r requirements.txt
+  6. Clear caches: php artisan cache:clear
+  7. Run migrations: php artisan migrate --force (if needed)
+  8. Set permissions: chmod -R 775 storage/ bootstrap/cache/
+  9. Restart application: php artisan queue:restart (if using queues)
+  10. Verify functionality
+
+Post-Deployment:
+  ☐ Test all tools in production
+  ☐ Check error logs
+  ☐ Monitor server resources
+  ☐ Set up automated backups
+  ☐ Configure log rotation
+
+15.2 SERVER CONFIGURATION
+
+WEB SERVER (Nginx example):
+
+server {
+  listen 443 ssl http2;
+  server_name convertsanything.com;
+  
+  ssl_certificate /etc/ssl/certs/cert.pem;
+  ssl_certificate_key /etc/ssl/private/key.pem;
+  
+  root /var/www/convertsanything/public;
+  index index.php;
+  
+  location ~ \.php$ {
+    fastcgi_pass unix:/var/run/php-fpm.sock;
+    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    include fastcgi_params;
+  }
+  
+  location / {
+    try_files $uri $uri/ /index.php?$query_string;
+  }
+  
+  location ~* \.(jpg|jpeg|png|gif|ico|css|js)$ {
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+  }
+}
+
+PHP-FPM CONFIG:
+  - Min processes: 2
+  - Max processes: 10
+  - Max requests: 5000
+
+15.3 PERFORMANCE OPTIMIZATION
+
+Caching Strategy:
+  - Fragment caching: Cache rendered HTML
+  - Database caching: Cache queries (Redis)
+  - HTTP caching: Browser cache headers
+  - CDN: Serve static assets from CDN
+
+File Processing:
+  - Queue conversions for large files (optional)
+  - Implement rate limiting (optional)
+  - Monitor disk space for temp files
+  - Auto-cleanup temp files after 24 hours
+
+Monitoring:
+  - Track error rates
+  - Monitor disk usage (temp directory)
+  - Track API response times
+  - Set up alerts for failures
+
+15.4 BACKUP STRATEGY
+
+What to Backup:
+  - Database (if using MySQL)
+  - Application code (.git repository)
+  - storage/ directory (user files)
+  - .env file (environment variables)
+
+Backup Frequency:
+  - Database: Daily
+  - Code: On every deployment
+  - User files: Daily or continuous
+
+Backup Tools:
+  - VPS provider backup tools
+  - Automated scripts (cron)
+  - External backup services (AWS S3, Backblaze)
+
+Restore Procedure:
+  1. Stop application
+  2. Restore database from dump
+  3. Restore code from git commit
+  4. Restore files from backup
+  5. Verify application health
+  6. Restart application
+
+================================================================================
+16. TROUBLESHOOTING AND MAINTENANCE
+================================================================================
+
+16.1 COMMON ISSUES AND SOLUTIONS
+
+ISSUE 1: "Python not found" error
+
+Cause: Python path incorrect in .env
+Solution:
+  1. Find Python path:
+     $ which python3        (Linux)
+     $ where python         (Windows)
+  2. Update .env: PYTHON_PATH="/usr/bin/python3"
+  3. Verify: python --version
+
+ISSUE 2: "LibreOffice not found" error
+
+Cause: soffice.exe path incorrect
+Solution:
+  1. Find LibreOffice:
+     $ which soffice        (Linux)
+     $ where soffice.exe    (Windows)
+  2. Update .env with correct path
+  3. Verify: soffice --version
+
+ISSUE 3: Conversion timeout
+
+Cause: File too large or server slow
+Solution:
+  1. Increase timeout in .env: CONVERSION_TIMEOUT=300 (5 minutes)
+  2. Optimize file size (compress uploads)
+  3. Check server resources (CPU, RAM, disk space)
+
+ISSUE 4: Permission denied errors
+
+Cause: Directory permissions wrong
+Solution:
+  $ chmod -R 775 storage/
+  $ chmod -R 775 bootstrap/cache/
+
+ISSUE 5: Out of disk space
+
+Cause: Temp files not cleaning up
+Solution:
+  1. Manual cleanup: rm -rf storage/app/temp/*
+  2. Check available space: df -h
+  3. Consider external storage (S3, etc.)
+
+ISSUE 6: Image quality loss
+
+Cause: JPEG/WebP quality too low
+Solution:
+  1. Adjust quality slider in UI (default 85%)
+  2. Use PNG for lossless (larger file)
+  3. Document quality trade-offs
+
+16.2 MAINTENANCE TASKS
+
+DAILY:
+  - Monitor error logs: storage/logs/laravel.log
+  - Check disk space: df -h
+  - Monitor temp directory size
+
+WEEKLY:
+  - Review server resources (CPU, RAM, bandwidth)
+  - Check backup status
+  - Test recovery procedures
+
+MONTHLY:
+  - Update dependencies: composer update
+  - Update Python packages: pip install --upgrade -r requirements.txt
+  - Review application performance
+  - Clean old logs: php artisan tinker → Storage::deleteDirectory('logs/old')
+
+QUARTERLY:
+  - Security audit
+  - Dependency review
+  - Performance optimization
+  - Update OS and system packages
+
+16.3 LOG MONITORING
+
+Log File: storage/logs/laravel.log
+
+Log Levels:
+  - emergency: System unusable
+  - alert: Action required immediately
+  - critical: Critical condition
+  - error: Error condition
+  - warning: Warning condition
+  - notice: Normal but notable
+  - info: Informational
+  - debug: Debug information
+
+Viewing Logs:
+  $ tail -f storage/logs/laravel.log      (real-time)
+  $ grep ERROR storage/logs/laravel.log   (errors only)
+
+Log Rotation (Laravel generates new file daily):
+  storage/logs/laravel-2024-01-15.log
+  storage/logs/laravel-2024-01-14.log
+
+16.4 PERFORMANCE MONITORING
+
+Metrics to Track:
+  - API response times
+  - Conversion success rates
+  - File processing times
+  - Disk space usage
+  - Server CPU/RAM usage
+  - Error rates
+
+Tools (Optional):
+  - New Relic (APM)
+  - Sentry (Error tracking)
+  - Datadog (Monitoring)
+  - Custom monitoring script
+
+================================================================================
+17. SECURITY CONSIDERATIONS
+================================================================================
+
+17.1 INPUT VALIDATION
+
+All user inputs validated:
+  - File MIME type (whitelist allowed types)
+  - File size (max 50MB per file)
+  - File count (limits per tool)
+  - Quality values (range checks)
+  - Dimensions (reasonable limits)
+  - Text length (max 1MB)
+
+17.2 CSRF PROTECTION
+
+CSRF token required on all POST requests:
+  - Generated in Blade templates
+  - Verified by Laravel middleware
+  - Unique per session
+  - Invalidates old tokens
+
+17.3 FILE SECURITY
+
+  - No executable files allowed
+  - No script execution in storage/
+  - Filename sanitization
+  - No path traversal attacks
+  - Files served with correct MIME type
+
+17.4 RATE LIMITING
+
+Optional (not currently implemented):
+  - Limit requests per IP
+  - Limit file uploads per hour
+  - Throttle API endpoints
+
+17.5 SSL/TLS
+
+Production requirement:
+  - All traffic over HTTPS
+  - Valid SSL certificate
+  - HTTP redirects to HTTPS
+  - HSTS header enabled
+
+================================================================================
+
+QUICK REFERENCE COMMANDS
+================================================================================
+
+LOCAL DEVELOPMENT:
+  $ php artisan serve                    # Start dev server
+  $ php artisan migrate                  # Run migrations
+  $ php artisan cache:clear              # Clear caches
+  $ php artisan tail                     # Watch logs
+  $ php artisan tinker                   # Interactive shell
+  $ composer install                     # Install PHP deps
+  $ composer update                      # Update PHP deps
+  $ pip install -r requirements.txt      # Install Python deps
+
+PRODUCTION:
+  $ git pull origin main                 # Pull latest code
+  $ composer install --no-dev            # Install deps (no dev)
+  $ php artisan config:cache             # Cache config
+  $ php artisan route:cache              # Cache routes
+  $ php artisan view:cache               # Cache views
+  $ chmod -R 775 storage/                # Fix permissions
+  $ php artisan queue:work               # Start queue worker
+
+================================================================================
+
+END OF DOCUMENTATION
+================================================================================
+
+Last Updated: April 8, 2026
+Project: Convertsanything v1.0
+For questions or updates, refer to README.md and individual service files.
+
+================================================================================
+
+
+pending..
+You are working on an existing Laravel 12 + Blade + vanilla JS + Python-assisted file conversion project called Convertsanything.
+
+Your job is to make the project production-ready without rewriting it from scratch.
+
+IMPORTANT RULES
+- First inspect the current codebase.
+- If something is already implemented correctly and production-safe, SKIP it.
+- If something exists but is weak, incomplete, local-only, or not production-safe, IMPROVE it.
+- Do not duplicate logic.
+- Do not break existing routes unless absolutely necessary.
+- Preserve the current Laravel + Python hybrid architecture.
+- Make real code changes, not just suggestions.
+
+PROJECT CONTEXT
+- Laravel is the main application layer.
+- Python is used for document-processing tasks.
+- LibreOffice headless is used for Word to PDF.
+- PDF to Word uses Python-based extraction/OCR and Laravel-side DOCX generation.
+- Merge PDF and Split PDF already exist.
+- Temp-file downloads already exist.
+- There is already documentation describing architecture, deployment, temp cleanup, security basics, and production goals.
+
+MAIN GOAL
+Make the whole project production-ready for real public use.
+
+PRODUCTION-READY TARGETS
+1. Strong reliability
+2. Safe file handling
+3. Rate limiting and abuse protection
+4. Background processing for heavy jobs
+5. Better monitoring and diagnostics
+6. Automatic temp-file cleanup
+7. Health checks for critical dependencies
+8. Stable deployment configuration
+9. Better production environment config
+10. Safer and smoother download lifecycle
+
+HIGH PRIORITY AREAS TO IMPLEMENT
+
+1) RATE LIMITING
+- Add Laravel rate limiting for document/image/text API endpoints.
+- Protect heavy endpoints like:
+  - /api/convert/pdf-to-word
+  - /api/convert/word-to-pdf
+  - /api/pdf/merge
+  - /api/pdf/split
+- Use sensible per-IP limits for uploads and conversion requests.
+- Return clean JSON responses when throttled.
+- Keep limits configurable.
+
+2) QUEUE / BACKGROUND JOBS
+- Move heavy document-processing tasks out of the request cycle where appropriate.
+- Use Laravel jobs/queue for:
+  - PDF to Word
+  - Word to PDF
+  - possibly heavy merge/split jobs for large files
+- Keep lightweight tools synchronous if already fine.
+- Add job status handling and robust failure handling.
+- Keep local setup simple, but production-ready.
+- If queue support is not present, implement it cleanly.
+
+3) TEMP FILE CLEANUP
+- Implement a real cleanup command for temp files if missing.
+- Delete expired files from storage/app/temp.
+- Make expiration configurable.
+- Register cleanup in Laravel scheduler.
+- Ensure cleanup does not delete fresh/downloadable files too early.
+- Log cleanup results.
+
+4) HEALTH CHECKS
+- Add a production health-check endpoint or command to verify:
+  - Laravel app is running
+  - temp storage is writable
+  - Python binary is available
+  - LibreOffice binary is available
+  - required Python packages are available
+- Return clear diagnostics without exposing sensitive details.
+- Make this production-safe.
+
+5) ERROR HANDLING + LOGGING
+- Improve error logging for all document tools.
+- Log conversion failures with useful metadata:
+  - tool name
+  - original filename
+  - file size
+  - exception message
+  - external process exit code if available
+- Do not log sensitive file contents.
+- Make frontend errors user-friendly.
+- Keep debug detail in logs, not user-facing responses.
+
+6) PRODUCTION STORAGE + DOWNLOAD SAFETY
+- Review TemporaryDownloadService and download flow.
+- Make sure downloads are safe and production-ready.
+- Prevent path traversal and invalid filename access.
+- Ensure generated temp files can be served safely.
+- Improve expiry handling if needed.
+- Keep current download UX intact.
+
+7) DEPENDENCY VALIDATION
+- Check all required dependencies.
+- If missing, install/add them.
+- Update:
+  - composer.json
+  - requirements.txt
+  - .env.example
+  - config/tools.php or other config files
+- Ensure the project clearly supports:
+  - Python runtime path
+  - LibreOffice path
+  - conversion timeouts
+  - temp-file retention time
+  - queue connection
+  - cache/session config for production
+
+8) PRODUCTION ENVIRONMENT HARDENING
+- Review .env.example and production-related config.
+- Make production defaults safer.
+- Prefer:
+  - APP_DEBUG=false in production examples
+  - file/redis/session/cache recommendations
+  - queue recommendations
+- Make config names consistent with current Laravel version.
+- Avoid outdated or invalid env keys.
+
+9) API CONSISTENCY
+- Standardize JSON responses across all document endpoints.
+- Make success/error payloads consistent.
+- Include stable fields like:
+  - success
+  - message
+  - downloads / filename / downloadUrl
+  - optional status/job reference if queued
+- Keep backward compatibility where possible.
+
+10) FRONTEND PRODUCTION POLISH
+- Keep current UI structure.
+- Improve production-facing UX where weak:
+  - clean error states
+  - better retry flow
+  - smooth busy states
+  - disabled buttons during processing
+  - clear completed/failed status
+- Do not redesign everything.
+- Keep it lightweight and professional.
+
+11) SECURITY HARDENING
+- Review all file-upload validation.
+- Ensure MIME/type/size/extension validation is strict.
+- Ensure file count limits exist where needed.
+- Add or improve abuse protections.
+- Do not allow executable or dangerous uploads through weak validation.
+- Harden download endpoints.
+
+12) PRODUCTION DOCUMENTATION
+- Update README and/or project documentation with:
+  - production deployment steps
+  - required system dependencies
+  - queue setup
+  - scheduler setup
+  - health-check usage
+  - temp cleanup behavior
+  - LibreOffice + Python requirements
+  - troubleshooting for production conversion failures
+
+FILES TO REVIEW FIRST
+- app/Http/Controllers/Api/DocumentController.php
+- app/Http/Controllers/Api/PdfController.php
+- app/Http/Controllers/DownloadController.php
+- app/Services/DocumentToolService.php
+- app/Services/TemporaryDownloadService.php
+- app/Services/ImageToolService.php
+- app/Services/TextToolService.php
+- app/Console/Kernel.php or routes/console.php depending on Laravel 12 structure
+- routes/api.php
+- routes/web.php
+- bootstrap/app.php
+- config/cache.php
+- config/filesystems.php
+- config/tools.php
+- public/assets/app.js
+- public/assets/app.css
+- resources/views/tools/documents/*.blade.php
+- scripts/pdf_to_word_layout.py
+- scripts/word_to_pdf_libreoffice.py
+- .env.example
+- composer.json
+- requirements.txt
+- README.md
+
+IMPLEMENTATION RULES
+- If a file is already correct, say:
+  SKIPPED (already production-safe enough)
+- If a file needs work:
+  - explain what was weak
+  - explain what was changed
+  - provide the final updated code
+- Add new files only if truly needed.
+- Reuse existing architecture.
+- Do not remove working features.
+
+REQUIRED DELIVERABLES
+1. A short production-readiness plan
+2. File-by-file implementation
+3. Any needed install commands
+4. Any new artisan commands/jobs/scheduler entries
+5. Updated config and environment examples
+6. Final checklist of what is now production-ready and what still depends on server setup
+
+IMPORTANT EXTRA CONDITIONS
+- If queueing is added, also document how to run the worker in production.
+- If scheduler tasks are added, also document the cron/scheduler requirement.
+- If rate limiting is added, ensure JSON APIs return proper API-friendly responses.
+- If external dependencies fail, surface friendly messages to users and detailed logs to developers.
+- If functionality is already done, skip it and do not rewrite it.
+
+FINAL TARGET
+The project should be genuinely closer to production use:
+- safer
+- more stable
+- more scalable
+- easier to deploy
+- easier to monitor
+- less fragile around Python/LibreOffice/temp files
+- smoother for users
+
+if the form above the files is done skip that and whatever you update the project_setup txt file according and readme file 
