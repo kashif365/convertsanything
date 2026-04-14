@@ -25,3 +25,10 @@ Thumbs.db
 *.log
 
 /public/uploads
+
+# Local environment files
+.env
+
+# Generated runtime conversion artifacts
+/storage/app/temp/*
+!/storage/app/temp/.gitignore

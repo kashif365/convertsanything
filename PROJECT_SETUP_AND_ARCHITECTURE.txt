@@ -1697,3 +1697,93 @@ The project should be genuinely closer to production use:
 - smoother for users
 
 if the form above the files is done skip that and whatever you update the project_setup txt file according and readme file 
+
+================================================================================
+18. APRIL 2026 MIGRATION STATUS (LATEST)
+================================================================================
+
+This section is the current source of truth for document conversion behavior.
+If older sections in this file mention Python scripts for Word/PDF conversion,
+this section overrides them.
+
+COMPLETED CHANGES
+--------------------------------------------------------------------------------
+1. Removed Python runtime dependency from active Word/PDF conversion flow.
+2. Removed Python conversion scripts:
+  - scripts/pdf_to_word_layout.py
+  - scripts/word_to_pdf_libreoffice.py
+  - scripts/__pycache__/*
+3. Removed requirements.txt from repository.
+4. Refactored app/Services/DocumentToolService.php:
+  - Word to PDF: local LibreOffice headless conversion (primary)
+  - PDF to Word: local LibreOffice conversion (primary)
+  - PDF to Word fallback: PHP text extraction + optional OCR CLI fallback
+  - Word to PDF fallback: optional ConvertAPI fallback when enabled
+  - Better process error diagnostics and Windows execution hardening
+5. Updated config/tools.php with document conversion runtime keys:
+  - LIBREOFFICE_BIN
+  - WORD_TO_PDF_TIMEOUT
+  - WORD_TO_PDF_API_ENABLED
+  - CONVERTAPI_SECRET
+  - WORD_TO_PDF_API_TIMEOUT
+  - PDF_TO_WORD_TIMEOUT
+  - TESSERACT_BIN
+  - PDFTOPPM_BIN
+6. Updated UI copy in resources/views/pages/home.blade.php to reflect PHP/Laravel-based backend conversion flow.
+7. Added git hygiene for runtime artifacts in .gitignore:
+  - .env
+  - storage/app/temp/* (except storage/app/temp/.gitignore)
+
+CURRENT RUNTIME BEHAVIOR
+--------------------------------------------------------------------------------
+Word to PDF sequence:
+1. Try local LibreOffice conversion first.
+2. If local conversion fails and WORD_TO_PDF_API_ENABLED=true with valid CONVERTAPI_SECRET,
+  use ConvertAPI fallback.
+
+PDF to Word sequence:
+1. Try local LibreOffice conversion first.
+2. If local conversion fails, fallback to PHP extraction path.
+3. For scanned PDFs, OCR fallback is attempted when Tesseract + pdftoppm are installed and configured.
+
+REMAINING PROJECT WORK
+--------------------------------------------------------------------------------
+1. README.md still needs full refresh so it matches this migration status exactly.
+2. Add/keep storage/app/temp/.gitignore file in repository so the ignored temp directory remains present.
+3. Optional hardening still recommended:
+  - API rate limiting for heavy conversion endpoints.
+  - Queue-based asynchronous conversion for very large files.
+  - Scheduled temp-file cleanup command + scheduler registration.
+  - Health check endpoint/command for LibreOffice and OCR dependencies.
+
+LIVE PRODUCTION CHECKLIST
+--------------------------------------------------------------------------------
+1. Server dependencies:
+  - Install LibreOffice.
+  - Optional for scanned PDFs: install Tesseract and Poppler (pdftoppm).
+2. Environment variables (production):
+  - APP_ENV=production
+  - APP_DEBUG=false
+  - APP_URL=<your domain>
+  - LIBREOFFICE_BIN=<absolute soffice path>
+  - WORD_TO_PDF_API_ENABLED=true|false (as desired)
+  - CONVERTAPI_SECRET=<secret, only if API fallback enabled>
+  - WORD_TO_PDF_TIMEOUT, WORD_TO_PDF_API_TIMEOUT, PDF_TO_WORD_TIMEOUT tuned for server size.
+3. Laravel deployment commands:
+  - php artisan config:cache
+  - php artisan route:cache
+  - php artisan view:cache
+4. Permissions:
+  - Ensure storage/ and bootstrap/cache are writable by web user.
+5. Process/supervision:
+  - If queue is used later, run queue worker under process manager (Supervisor/systemd/Windows service).
+6. Validation smoke tests after deployment:
+  - Word->PDF API endpoint test
+  - PDF->Word API endpoint test
+  - Download URL verification for generated outputs
+
+NOTES
+--------------------------------------------------------------------------------
+- Keep .env out of git commits.
+- If CONVERTAPI_SECRET is ever exposed, rotate it immediately.
+- Local behavior should match production when LibreOffice path and permissions are configured correctly.

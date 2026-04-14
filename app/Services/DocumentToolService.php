@@ -4,14 +4,16 @@ namespace App\Services;
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\PhpWord;
 use PhpOffice\PhpWord\Settings;
 use RuntimeException;
-use Symfony\Component\Process\Exception\ProcessFailedException;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Process;
 use Throwable;
 use setasign\Fpdi\Fpdi;
+use Smalot\PdfParser\Parser as PdfParser;
 
 class DocumentToolService
 {
@@ -23,37 +25,54 @@ class DocumentToolService
     public function pdfToWord(UploadedFile $file): array
     {
         $baseName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
-        $layout = $this->extractPdfLayoutWithPython($file->getRealPath(), $baseName);
-        $pages = $layout['pages'] ?? [];
-        $layoutTempDir = (string) ($layout['_tempDir'] ?? '');
-
-        if ($pages === []) {
-            if ($layoutTempDir !== '' && is_dir($layoutTempDir)) {
-                File::deleteDirectory($layoutTempDir);
-            }
-
-            throw new RuntimeException(
-                'This PDF could not be converted. No extractable text or OCR output was produced by the current backend.'
-            );
-        }
-
         try {
-            $documentPath = $this->buildWordDocumentFromPages(
-                $pages,
-                'Converted from PDF: '.$file->getClientOriginalName()
-            );
-
+            $conversion = $this->convertPdfToWordWithLibreOffice($file->getRealPath());
+            $documentPath = (string) ($conversion['docxPath'] ?? '');
+            $workDir = (string) ($conversion['workDir'] ?? '');
             $downloadName = $baseName.'.docx';
             $download = $this->downloads->storeFile($documentPath, $downloadName);
-            @unlink($documentPath);
-            $download['note'] = 'DOCX generated with improved layout grouping, spacing-aware text runs, and OCR fallback for scanned pages.';
-        } finally {
-            if ($layoutTempDir !== '' && is_dir($layoutTempDir)) {
-                File::deleteDirectory($layoutTempDir);
-            }
-        }
 
-        return $this->response('PDF converted to a DOCX document.', [$download]);
+            if ($workDir !== '' && is_dir($workDir)) {
+                File::deleteDirectory($workDir);
+            }
+
+            $download['note'] = 'DOCX generated with LibreOffice conversion for improved compatibility.';
+
+            return $this->response('PDF converted to a DOCX document.', [$download]);
+        } catch (RuntimeException $libreOfficeError) {
+            $layout = $this->extractPdfLayoutWithPhp($file->getRealPath());
+            $pages = $layout['pages'] ?? [];
+            $layoutTempDir = (string) ($layout['_tempDir'] ?? '');
+
+            if ($pages === []) {
+                if ($layoutTempDir !== '' && is_dir($layoutTempDir)) {
+                    File::deleteDirectory($layoutTempDir);
+                }
+
+                throw new RuntimeException(
+                    'PDF to Word conversion failed. LibreOffice details: '.$libreOfficeError->getMessage().
+                    ' Fallback could not extract text/OCR output. Install Tesseract and Poppler (pdftoppm) for scanned PDFs.'
+                );
+            }
+
+            try {
+                $documentPath = $this->buildWordDocumentFromPages(
+                    $pages,
+                    'Converted from PDF: '.$file->getClientOriginalName()
+                );
+
+                $downloadName = $baseName.'.docx';
+                $download = $this->downloads->storeFile($documentPath, $downloadName);
+                @unlink($documentPath);
+                $download['note'] = 'LibreOffice conversion was unavailable for this PDF. Fallback rebuilt DOCX using extracted text and OCR where available.';
+            } finally {
+                if ($layoutTempDir !== '' && is_dir($layoutTempDir)) {
+                    File::deleteDirectory($layoutTempDir);
+                }
+            }
+
+            return $this->response('PDF converted to a DOCX document (fallback mode).', [$download]);
+        }
     }
 
     public function wordToPdf(UploadedFile $file): array
@@ -64,7 +83,7 @@ class DocumentToolService
             throw new RuntimeException('Unsupported Word format. Use DOC or DOCX.');
         }
 
-        $conversion = $this->convertWordToPdfWithPython($file->getRealPath(), $extension);
+        $conversion = $this->convertWordToPdfWithPhp($file->getRealPath(), $extension);
         $pdfPath = (string) ($conversion['pdfPath'] ?? '');
         $workDir = (string) ($conversion['workDir'] ?? '');
 
@@ -175,40 +194,174 @@ class DocumentToolService
         return $this->response('PDF split successfully.', $downloads);
     }
 
-    private function extractPdfLayoutWithPython(string $pdfPath, string $baseName): array
+    private function extractPdfLayoutWithPhp(string $pdfPath): array
     {
-        $script = base_path('scripts/pdf_to_word_layout.py');
-        $outputDir = storage_path('app/temp/pdf-layout-'.uniqid());
-        $outputJson = storage_path('app/temp/pdf-layout-'.uniqid().'.json');
-        File::ensureDirectoryExists($outputDir);
-
-        $this->runPythonScript($script, [$pdfPath, $outputDir, $outputJson], 180);
-
-        if (! is_file($outputJson)) {
-            throw new RuntimeException('PDF layout extraction failed. Backend did not return output JSON.');
+        try {
+            $document = (new PdfParser())->parseFile($pdfPath);
+            $rawPages = $document->getPages();
+        } catch (Throwable $exception) {
+            throw new RuntimeException('Unable to read PDF content for Word export.', 0, $exception);
         }
 
-        $json = file_get_contents($outputJson) ?: '{}';
-        @unlink($outputJson);
-        $data = json_decode($json, true);
+        $pages = [];
 
-        if (! is_array($data)) {
-            throw new RuntimeException('PDF layout extraction returned invalid JSON.');
+        foreach ($rawPages as $pageIndex => $page) {
+            $text = trim((string) $page->getText());
+            $lines = preg_split('/\R+/u', $text) ?: [];
+            $paragraphs = [];
+            $y = 40.0;
+
+            foreach ($lines as $line) {
+                $line = trim($line);
+                if ($line === '') {
+                    $y += 12.0;
+                    continue;
+                }
+
+                $paragraphs[] = [
+                    'x' => 36.0,
+                    'y' => $y,
+                    'width' => 744.0,
+                    'height' => 18.0,
+                    'lineHeight' => 18.0,
+                    'alignment' => 'left',
+                    'lines' => [[
+                        'runs' => [[
+                            'text' => $line,
+                            'fontName' => 'Calibri',
+                            'fontSize' => 12,
+                            'fontWeight' => 'normal',
+                            'fontStyle' => 'normal',
+                        ]],
+                    ]],
+                ];
+
+                $y += 18.0;
+            }
+
+            $pages[] = [
+                'pageNumber' => $pageIndex + 1,
+                'width' => 816.0,
+                'height' => 1056.0,
+                'type' => 'text',
+                'paragraphs' => $paragraphs,
+            ];
         }
 
-        $data['_tempDir'] = $outputDir;
+        if ($this->hasTextParagraphs($pages)) {
+            return [
+                'pages' => $pages,
+                '_tempDir' => '',
+            ];
+        }
 
-        return $data;
+        $ocrLayout = $this->extractPdfLayoutWithOcrCli($pdfPath);
+        if (($ocrLayout['pages'] ?? []) !== []) {
+            return $ocrLayout;
+        }
+
+        return [
+            'pages' => $pages,
+            '_tempDir' => '',
+        ];
     }
 
-    private function convertWordToPdfWithPython(string $wordPath, string $extension): array
+    private function convertPdfToWordWithLibreOffice(string $pdfPath): array
     {
-        $script = base_path('scripts/word_to_pdf_libreoffice.py');
+        $outputDir = storage_path('app/temp/pdf-word-lo-'.uniqid());
+        $sourcePath = $outputDir.DIRECTORY_SEPARATOR.'source.pdf';
+        $timeout = (int) config('tools.document.pdf_to_word_timeout', 240);
+        $configuredBin = (string) config('tools.document.libreoffice_bin', env('LIBREOFFICE_BIN', ''));
+        $sofficeBin = $this->detectLibreOfficeBin($configuredBin);
+
+        File::ensureDirectoryExists($outputDir);
+
+        if (! @copy($pdfPath, $sourcePath)) {
+            File::deleteDirectory($outputDir);
+            throw new RuntimeException('Unable to prepare the uploaded PDF file for conversion.');
+        }
+
+        if ($sofficeBin === null) {
+            File::deleteDirectory($outputDir);
+            throw new RuntimeException(
+                'LibreOffice was not found. Install LibreOffice and set LIBREOFFICE_BIN in .env (for example: C:\\Program Files\\LibreOffice\\program\\soffice.exe).'
+            );
+        }
+
+        $profileDir = $outputDir.DIRECTORY_SEPARATOR.'lo-profile';
+        File::ensureDirectoryExists($profileDir);
+        $profileUri = $this->toFileUri((string) (realpath($profileDir) ?: $profileDir));
+
+        $normalizedSoffice = $this->normalizeFilesystemPath($this->preferWindowsSofficeCom($sofficeBin));
+        $normalizedOutputDir = $this->normalizeFilesystemPath((string) (realpath($outputDir) ?: $outputDir));
+        $normalizedSourcePath = $this->normalizeFilesystemPath((string) (realpath($sourcePath) ?: $sourcePath));
+        $envOverrides = $this->libreOfficeEnvOverrides($outputDir);
+
+        $commands = [
+            [
+                $normalizedSoffice,
+                '--headless',
+                '--nologo',
+                '--nofirststartwizard',
+                '-env:UserInstallation='.$profileUri,
+                '--infilter=writer_pdf_import',
+                '--convert-to',
+                'docx',
+                '--outdir',
+                $normalizedOutputDir,
+                $normalizedSourcePath,
+            ],
+            [
+                $normalizedSoffice,
+                '--headless',
+                '--nologo',
+                '--nofirststartwizard',
+                '--infilter=writer_pdf_import',
+                '--convert-to',
+                'docx',
+                '--outdir',
+                $normalizedOutputDir,
+                $normalizedSourcePath,
+            ],
+        ];
+
+        $errors = [];
+        $converted = false;
+        foreach ($commands as $command) {
+            try {
+                $this->runProcess($command, $timeout, $envOverrides);
+                $converted = true;
+                break;
+            } catch (RuntimeException $exception) {
+                $errors[] = $exception->getMessage();
+            }
+        }
+
+        if (! $converted) {
+            File::deleteDirectory($outputDir);
+            throw new RuntimeException('LibreOffice failed to convert the PDF to DOCX. '.implode(' | ', $errors));
+        }
+
+        $docxPath = $this->findConvertedByExtension($sourcePath, $outputDir, 'docx');
+        if ($docxPath === null || ! is_file($docxPath)) {
+            File::deleteDirectory($outputDir);
+            throw new RuntimeException('LibreOffice completed but DOCX output was not produced.');
+        }
+
+        return [
+            'docxPath' => $docxPath,
+            'workDir' => $outputDir,
+        ];
+    }
+
+    private function convertWordToPdfWithPhp(string $wordPath, string $extension): array
+    {
         $outputDir = storage_path('app/temp/word-pdf-'.uniqid());
-        $outputJson = storage_path('app/temp/word-pdf-'.uniqid().'.json');
         $sourcePath = $outputDir.DIRECTORY_SEPARATOR.'source.'.ltrim($extension, '.');
-        $libreOfficeBin = (string) config('tools.document.libreoffice_bin', env('LIBREOFFICE_BIN', ''));
         $timeout = (int) config('tools.document.word_to_pdf_timeout', 180);
+        $configuredBin = (string) config('tools.document.libreoffice_bin', env('LIBREOFFICE_BIN', ''));
+        $sofficeBin = $this->detectLibreOfficeBin($configuredBin);
+
         File::ensureDirectoryExists($outputDir);
 
         if (! @copy($wordPath, $sourcePath)) {
@@ -216,92 +369,529 @@ class DocumentToolService
             throw new RuntimeException('Unable to prepare the uploaded Word file for conversion.');
         }
 
-        try {
-            $this->runPythonScript($script, [$sourcePath, $outputDir, $outputJson, $libreOfficeBin], $timeout);
-        } catch (RuntimeException $exception) {
-            if (is_file($outputJson)) {
-                $payload = json_decode((string) file_get_contents($outputJson), true) ?: [];
-                @unlink($outputJson);
-
-                if (($payload['errorCode'] ?? '') === 'libreoffice_missing') {
-                    File::deleteDirectory($outputDir);
-                    throw new RuntimeException(
-                        'LibreOffice was not found. Install LibreOffice and set LIBREOFFICE_BIN in .env (for example: C:\\Program Files\\LibreOffice\\program\\soffice.exe).'
-                    );
-                }
-
-                if (! empty($payload['message'])) {
-                    $details = trim((string) ($payload['details'] ?? ''));
-                    File::deleteDirectory($outputDir);
-                    throw new RuntimeException(
-                        $details !== ''
-                            ? ((string) $payload['message']).' Details: '.preg_replace('/\s+/u', ' ', $details)
-                            : (string) $payload['message']
-                    );
-                }
-            }
-
+        if ($sofficeBin === null) {
             File::deleteDirectory($outputDir);
-            throw $exception;
+            throw new RuntimeException(
+                'LibreOffice was not found. Install LibreOffice and set LIBREOFFICE_BIN in .env (for example: C:\\Program Files\\LibreOffice\\program\\soffice.exe).'
+            );
         }
 
-        $payload = json_decode((string) (file_get_contents($outputJson) ?: '{}'), true) ?: [];
-        @unlink($outputJson);
+        $profileDir = $outputDir.DIRECTORY_SEPARATOR.'lo-profile';
+        File::ensureDirectoryExists($profileDir);
+        $profileUri = $this->toFileUri((string) (realpath($profileDir) ?: $profileDir));
 
-        $pdfPath = (string) ($payload['pdfPath'] ?? '');
-        if (! is_file($pdfPath)) {
+        $normalizedSoffice = $this->normalizeFilesystemPath($this->preferWindowsSofficeCom($sofficeBin));
+        $normalizedOutputDir = $this->normalizeFilesystemPath((string) (realpath($outputDir) ?: $outputDir));
+        $normalizedSourcePath = $this->normalizeFilesystemPath((string) (realpath($sourcePath) ?: $sourcePath));
+        $envOverrides = $this->libreOfficeEnvOverrides($outputDir);
+
+        $commands = [
+            [
+                $normalizedSoffice,
+                '--headless',
+                '--nologo',
+                '--nofirststartwizard',
+                '-env:UserInstallation='.$profileUri,
+                '--convert-to',
+                'pdf:writer_pdf_Export',
+                '--outdir',
+                $normalizedOutputDir,
+                $normalizedSourcePath,
+            ],
+            [
+                $normalizedSoffice,
+                '--headless',
+                '--nologo',
+                '--nofirststartwizard',
+                '--convert-to',
+                'pdf:writer_pdf_Export',
+                '--outdir',
+                $normalizedOutputDir,
+                $normalizedSourcePath,
+            ],
+            [
+                $normalizedSoffice,
+                '--headless',
+                '--convert-to',
+                'pdf',
+                '--outdir',
+                $normalizedOutputDir,
+                $normalizedSourcePath,
+            ],
+        ];
+
+        $localError = null;
+        foreach ($commands as $command) {
+            try {
+                $this->runProcess($command, $timeout, $envOverrides);
+                $localError = null;
+                break;
+            } catch (RuntimeException $exception) {
+                $localError = $exception->getMessage();
+            }
+        }
+
+        if ($localError === null) {
+            $pdfPath = $this->findConvertedByExtension($sourcePath, $outputDir, 'pdf');
+            if ($pdfPath !== null && is_file($pdfPath)) {
+                return [
+                    'pdfPath' => $pdfPath,
+                    'workDir' => $outputDir,
+                ];
+            }
+
+            $localError = 'LibreOffice finished without producing PDF output.';
+        }
+
+        try {
+            $apiPdfPath = $this->convertWordToPdfWithApi($sourcePath, $outputDir);
+
+            return [
+                'pdfPath' => $apiPdfPath,
+                'workDir' => $outputDir,
+            ];
+        } catch (RuntimeException $apiException) {
             File::deleteDirectory($outputDir);
-            throw new RuntimeException((string) ($payload['message'] ?? 'Word to PDF conversion did not produce a PDF output.'));
+            throw new RuntimeException(
+                'Local LibreOffice conversion failed: '.$localError.' API fallback failed: '.$apiException->getMessage()
+            );
+        }
+    }
+
+    private function convertWordToPdfWithApi(string $sourcePath, string $outputDir): string
+    {
+        $enabled = (bool) config('tools.document.word_to_pdf_api_enabled', false);
+        $secret = trim((string) config('tools.document.convertapi_secret', ''));
+        $timeout = (int) config('tools.document.word_to_pdf_api_timeout', 120);
+
+        if (! $enabled) {
+            throw new RuntimeException('API fallback is disabled. Set WORD_TO_PDF_API_ENABLED=true in .env.');
+        }
+
+        if ($secret === '') {
+            throw new RuntimeException('ConvertAPI secret is missing. Set CONVERTAPI_SECRET in .env.');
+        }
+
+        if (! is_file($sourcePath)) {
+            throw new RuntimeException('API fallback could not find input Word file.');
+        }
+
+        $extension = strtolower((string) pathinfo($sourcePath, PATHINFO_EXTENSION));
+        if (! in_array($extension, ['doc', 'docx'], true)) {
+            throw new RuntimeException('API fallback supports only DOC and DOCX input.');
+        }
+
+        $endpoint = sprintf('https://v2.convertapi.com/convert/%s/to/pdf', $extension);
+
+        $uploadResponse = Http::timeout(max(30, $timeout))
+            ->attach('File', (string) file_get_contents($sourcePath), basename($sourcePath))
+            ->post($endpoint, [
+                'Secret' => $secret,
+            ]);
+
+        if (! $uploadResponse->successful()) {
+            throw new RuntimeException('ConvertAPI request failed with HTTP '.$uploadResponse->status().': '.$uploadResponse->body());
+        }
+
+        $payload = $uploadResponse->json() ?: [];
+        $downloadUrl = (string) data_get($payload, 'Files.0.Url', '');
+        if ($downloadUrl === '') {
+            throw new RuntimeException('ConvertAPI did not return a PDF download URL.');
+        }
+
+        $pdfResponse = Http::timeout(max(30, $timeout))->get($downloadUrl);
+        if (! $pdfResponse->successful()) {
+            throw new RuntimeException('Failed downloading PDF from ConvertAPI. HTTP '.$pdfResponse->status());
+        }
+
+        $pdfPath = $outputDir.DIRECTORY_SEPARATOR.pathinfo($sourcePath, PATHINFO_FILENAME).'.pdf';
+        file_put_contents($pdfPath, $pdfResponse->body());
+
+        if (! is_file($pdfPath) || filesize($pdfPath) === 0) {
+            throw new RuntimeException('Downloaded API PDF is empty or missing.');
+        }
+
+        return $pdfPath;
+    }
+
+    private function detectLibreOfficeBin(?string $preferred = null): ?string
+    {
+        $candidates = [];
+
+        if (is_string($preferred) && trim($preferred) !== '') {
+            $candidates[] = trim($preferred, " \t\n\r\0\x0B\"");
+        }
+
+        $envBin = (string) env('LIBREOFFICE_BIN', '');
+        if (trim($envBin) !== '') {
+            $candidates[] = trim($envBin, " \t\n\r\0\x0B\"");
+        }
+
+        foreach (['soffice', 'libreoffice'] as $binaryName) {
+            $resolved = $this->resolveBinaryFromPath($binaryName);
+            if ($resolved !== null) {
+                $candidates[] = $resolved;
+            }
+        }
+
+        $candidates[] = 'C:\\Program Files\\LibreOffice\\program\\soffice.exe';
+        $candidates[] = 'C:\\Program Files\\LibreOffice\\program\\soffice.com';
+        $candidates[] = 'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe';
+        $candidates[] = 'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com';
+
+        foreach (array_unique($candidates) as $candidate) {
+            if ($candidate !== '' && is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveBinaryFromPath(string $binaryName): ?string
+    {
+        $finder = DIRECTORY_SEPARATOR === '\\' ? 'where' : 'which';
+        $process = new Process([$finder, $binaryName]);
+        $process->setTimeout(10);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            return null;
+        }
+
+        $lines = preg_split('/\R+/u', trim($process->getOutput())) ?: [];
+        foreach ($lines as $line) {
+            $candidate = trim($line);
+            if ($candidate !== '' && is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function findConvertedByExtension(string $inputPath, string $outputDir, string $extension): ?string
+    {
+        $expected = $outputDir.DIRECTORY_SEPARATOR.pathinfo($inputPath, PATHINFO_FILENAME).'.'.ltrim(strtolower($extension), '.');
+        if (is_file($expected)) {
+            return $expected;
+        }
+
+        $matches = glob($outputDir.DIRECTORY_SEPARATOR.'*.'.ltrim(strtolower($extension), '.')) ?: [];
+
+        return $matches[0] ?? null;
+    }
+
+    private function runProcess(array $command, int $timeoutSeconds, array $envOverrides = []): void
+    {
+        $process = new Process($command);
+        $process->setTimeout(max(30, $timeoutSeconds));
+        if ($envOverrides !== []) {
+            $inherited = getenv();
+            $baseEnv = is_array($inherited) ? $inherited : [];
+            $process->setEnv(array_merge($baseEnv, $envOverrides));
+        }
+
+        try {
+            $process->run();
+        } catch (ProcessTimedOutException $exception) {
+            $cmd = implode(' ', array_map(static fn (string $part): string => '"'.$part.'"', $command));
+            throw new RuntimeException('Process timed out after '.max(30, $timeoutSeconds).' seconds. Command: '.$cmd);
+        }
+
+        if ($process->isSuccessful()) {
+            return;
+        }
+
+        $stderr = trim((string) $process->getErrorOutput());
+        $stdout = trim((string) $process->getOutput());
+        $message = trim($stderr.' '.$stdout);
+        $cmd = implode(' ', array_map(static fn (string $part): string => '"'.$part.'"', $command));
+        $exitCode = $process->getExitCode();
+
+        if ($message === '') {
+            $message = 'No stderr/stdout from process.';
+        }
+
+        throw new RuntimeException(
+            'Command failed with exit code '.($exitCode ?? -1).'. '.$message.' Command: '.$cmd
+        );
+    }
+
+    private function hasTextParagraphs(array $pages): bool
+    {
+        foreach ($pages as $page) {
+            if (! empty($page['paragraphs'])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function extractPdfLayoutWithOcrCli(string $pdfPath): array
+    {
+        $tesseract = $this->detectTesseractBin((string) config('tools.document.tesseract_bin', env('TESSERACT_BIN', '')));
+        $pdftoppm = $this->detectPdftoppmBin((string) config('tools.document.pdftoppm_bin', env('PDFTOPPM_BIN', '')));
+
+        if ($tesseract === null || $pdftoppm === null) {
+            return [
+                'pages' => [],
+                '_tempDir' => '',
+            ];
+        }
+
+        $outputDir = storage_path('app/temp/pdf-ocr-'.uniqid());
+        File::ensureDirectoryExists($outputDir);
+
+        try {
+            $pageCount = (new Fpdi())->setSourceFile($pdfPath);
+        } catch (Throwable) {
+            File::deleteDirectory($outputDir);
+
+            return [
+                'pages' => [],
+                '_tempDir' => '',
+            ];
+        }
+
+        $pages = [];
+        $timeout = (int) config('tools.document.pdf_to_word_timeout', 240);
+
+        for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
+            $prefix = $outputDir.DIRECTORY_SEPARATOR.sprintf('page-%03d', $pageNo);
+
+            try {
+                $this->runProcess([
+                    $pdftoppm,
+                    '-f',
+                    (string) $pageNo,
+                    '-l',
+                    (string) $pageNo,
+                    '-singlefile',
+                    '-png',
+                    $pdfPath,
+                    $prefix,
+                ], $timeout);
+            } catch (RuntimeException) {
+                continue;
+            }
+
+            $imagePath = $prefix.'.png';
+            if (! is_file($imagePath)) {
+                continue;
+            }
+
+            $ocrText = '';
+            try {
+                $ocrText = $this->runProcessAndCaptureOutput([
+                    $tesseract,
+                    $imagePath,
+                    'stdout',
+                    '-l',
+                    'eng',
+                    '--psm',
+                    '6',
+                ], $timeout);
+            } catch (RuntimeException) {
+                // Keep page image; this page will stay as background-only if OCR fails.
+            }
+
+            [$width, $height] = $this->readImageSize($imagePath);
+            $paragraphs = $this->buildSimpleParagraphsFromText($ocrText);
+
+            $pages[] = [
+                'pageNumber' => $pageNo,
+                'width' => $width,
+                'height' => $height,
+                'type' => 'ocr',
+                'backgroundImage' => $imagePath,
+                'paragraphs' => $paragraphs,
+            ];
         }
 
         return [
-            'pdfPath' => $pdfPath,
-            'workDir' => $outputDir,
+            'pages' => $pages,
+            '_tempDir' => $outputDir,
         ];
     }
 
-    private function runPythonScript(string $script, array $arguments, int $timeoutSeconds): void
+    private function buildSimpleParagraphsFromText(string $text): array
     {
-        $candidates = $this->pythonCandidates();
-        $timeout = max(30, $timeoutSeconds);
-        $errors = [];
+        $paragraphs = [];
+        $lines = preg_split('/\R+/u', trim($text)) ?: [];
+        $y = 40.0;
 
-        foreach ($candidates as $pythonBin) {
-            $process = new Process(array_merge([$pythonBin, $script], $arguments));
-            $process->setTimeout($timeout);
-            // Avoid interpreter startup failures related to random hash initialization on some Windows setups.
-            $inheritedEnv = getenv();
-            $env = is_array($inheritedEnv) ? $inheritedEnv : [];
-            $process->setEnv(array_merge($env, [
-                'PYTHONHASHSEED' => '0',
-            ]));
-            $process->run();
-
-            if ($process->isSuccessful()) {
-                return;
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                $y += 10.0;
+                continue;
             }
 
-            $output = trim($process->getErrorOutput().' '.$process->getOutput());
-            $errors[] = sprintf('[%s] %s', $pythonBin, $output !== '' ? $output : (new ProcessFailedException($process))->getMessage());
+            $paragraphs[] = [
+                'x' => 36.0,
+                'y' => $y,
+                'width' => 744.0,
+                'height' => 18.0,
+                'lineHeight' => 18.0,
+                'alignment' => 'left',
+                'lines' => [[
+                    'runs' => [[
+                        'text' => $line,
+                        'fontName' => 'Calibri',
+                        'fontSize' => 12,
+                        'fontWeight' => 'normal',
+                        'fontStyle' => 'normal',
+                    ]],
+                ]],
+            ];
 
-            if (! str_contains(strtolower($output), 'fatal python error')) {
-                break;
+            $y += 18.0;
+        }
+
+        return $paragraphs;
+    }
+
+    private function readImageSize(string $imagePath): array
+    {
+        $size = @getimagesize($imagePath);
+
+        if (! is_array($size)) {
+            return [816.0, 1056.0];
+        }
+
+        return [
+            max(100.0, (float) ($size[0] ?? 816.0)),
+            max(100.0, (float) ($size[1] ?? 1056.0)),
+        ];
+    }
+
+    private function runProcessAndCaptureOutput(array $command, int $timeoutSeconds): string
+    {
+        $process = new Process($command);
+        $process->setTimeout(max(30, $timeoutSeconds));
+
+        try {
+            $process->run();
+        } catch (ProcessTimedOutException $exception) {
+            $cmd = implode(' ', array_map(static fn (string $part): string => '"'.$part.'"', $command));
+            throw new RuntimeException('Process timed out after '.max(30, $timeoutSeconds).' seconds. Command: '.$cmd);
+        }
+
+        if (! $process->isSuccessful()) {
+            $stderr = trim((string) $process->getErrorOutput());
+            $stdout = trim((string) $process->getOutput());
+            $message = trim($stderr.' '.$stdout);
+            $cmd = implode(' ', array_map(static fn (string $part): string => '"'.$part.'"', $command));
+            $exitCode = $process->getExitCode();
+
+            throw new RuntimeException('Command failed with exit code '.($exitCode ?? -1).'. '.$message.' Command: '.$cmd);
+        }
+
+        return trim((string) $process->getOutput());
+    }
+
+    private function detectTesseractBin(string $preferred): ?string
+    {
+        $candidates = array_values(array_filter([
+            trim($preferred),
+            (string) env('TESSERACT_BIN', ''),
+            $this->resolveBinaryFromPath('tesseract'),
+            'C:\\Program Files\\Tesseract-OCR\\tesseract.exe',
+            'C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe',
+        ], static fn (?string $item): bool => is_string($item) && trim($item) !== ''));
+
+        foreach (array_unique($candidates) as $candidate) {
+            $path = trim((string) $candidate, " \t\n\r\0\x0B\"");
+            if ($path !== '' && is_file($path)) {
+                return $path;
             }
         }
 
-        throw new RuntimeException(implode("\n", $errors));
+        return null;
     }
 
-    private function pythonCandidates(): array
+    private function detectPdftoppmBin(string $preferred): ?string
     {
-        $configured = (string) config('tools.document.python_bin', env('PDF_PYTHON_BIN', 'python'));
-
         $candidates = array_values(array_filter([
-            $configured,
-            'python',
-        ], static fn (string $value): bool => trim($value) !== ''));
+            trim($preferred),
+            (string) env('PDFTOPPM_BIN', ''),
+            $this->resolveBinaryFromPath('pdftoppm'),
+            'C:\\Program Files\\poppler\\Library\\bin\\pdftoppm.exe',
+            'C:\\Program Files\\poppler\\bin\\pdftoppm.exe',
+        ], static fn (?string $item): bool => is_string($item) && trim($item) !== ''));
 
-        return array_values(array_unique($candidates));
+        foreach (array_unique($candidates) as $candidate) {
+            $path = trim((string) $candidate, " \t\n\r\0\x0B\"");
+            if ($path !== '' && is_file($path)) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    private function toFileUri(string $path): string
+    {
+        $normalized = str_replace('\\', '/', $path);
+
+        if (preg_match('/^[A-Za-z]:\//', $normalized) === 1) {
+            return 'file:///'.str_replace(' ', '%20', $normalized);
+        }
+
+        if (str_starts_with($normalized, '/')) {
+            return 'file://'.str_replace(' ', '%20', $normalized);
+        }
+
+        return 'file:///'.str_replace(' ', '%20', $normalized);
+    }
+
+    private function normalizeFilesystemPath(string $path): string
+    {
+        $trimmed = trim($path, " \t\n\r\0\x0B\"");
+
+        if ($trimmed === '') {
+            return $trimmed;
+        }
+
+        if (DIRECTORY_SEPARATOR === '\\') {
+            return str_replace('/', '\\', $trimmed);
+        }
+
+        return str_replace('\\', '/', $trimmed);
+    }
+
+    private function preferWindowsSofficeCom(string $binaryPath): string
+    {
+        if (DIRECTORY_SEPARATOR !== '\\') {
+            return $binaryPath;
+        }
+
+        $normalized = $this->normalizeFilesystemPath($binaryPath);
+        if (! str_ends_with(strtolower($normalized), 'soffice.exe')) {
+            return $normalized;
+        }
+
+        $comPath = preg_replace('/soffice\.exe$/i', 'soffice.com', $normalized);
+        if (is_string($comPath) && is_file($comPath)) {
+            return $comPath;
+        }
+
+        return $normalized;
+    }
+
+    private function libreOfficeEnvOverrides(string $outputDir): array
+    {
+        $normalized = $this->normalizeFilesystemPath((string) (realpath($outputDir) ?: $outputDir));
+
+        return [
+            'HOME' => $normalized,
+            'USERPROFILE' => $normalized,
+            'TMP' => $normalized,
+            'TEMP' => $normalized,
+            'SAL_USE_VCLPLUGIN' => 'svp',
+        ];
     }
 
     private function buildWordDocumentFromPages(array $pages, string $title): string

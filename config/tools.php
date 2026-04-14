@@ -3,9 +3,14 @@ return [
     'brand' => 'Covertsanything',
     'tagline' => 'Professional file tools for PDF, Word, image, and text conversion. Smooth experience, accurate output, and fast processing.',
     'document' => [
-        'python_bin' => env('PDF_PYTHON_BIN', 'python'),
         'libreoffice_bin' => env('LIBREOFFICE_BIN', ''),
         'word_to_pdf_timeout' => (int) env('WORD_TO_PDF_TIMEOUT', 180),
+        'word_to_pdf_api_enabled' => (bool) env('WORD_TO_PDF_API_ENABLED', false),
+        'convertapi_secret' => env('CONVERTAPI_SECRET', ''),
+        'word_to_pdf_api_timeout' => (int) env('WORD_TO_PDF_API_TIMEOUT', 120),
+        'pdf_to_word_timeout' => (int) env('PDF_TO_WORD_TIMEOUT', 240),
+        'tesseract_bin' => env('TESSERACT_BIN', ''),
+        'pdftoppm_bin' => env('PDFTOPPM_BIN', ''),
     ],
     'features' => [
         ['title' => 'Instant Processing', 'description' => 'Most tools run directly in your browser for immediate results.', 'emoji' => '⚡'],

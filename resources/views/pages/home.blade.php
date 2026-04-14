@@ -81,7 +81,7 @@
             <article class="feature-card">
                 <div class="feature-emoji">🧠</div>
                 <h3>Smart Conversion Pipeline</h3>
-                <p>Hybrid Laravel + Python processing for better reliability and document quality.</p>
+                <p>Pure Laravel + PHP processing for reliable conversion and consistent backend control.</p>
             </article>
             <article class="feature-card">
                 <div class="feature-emoji">⏱️</div>
