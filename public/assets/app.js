@@ -1,11 +1,13 @@
 (function () {
-  const apiBase = (window.appConfig && window.appConfig.apiBaseUrl) || "/api";
-  const LAST_TOOL_KEY = "covertsanything:lastTool";
+  "use strict";
 
+  const apiBase = (window.appConfig && window.appConfig.apiBaseUrl) || "/api";
+  const LAST_TOOL_KEY = "convertsanything:lastTool";
+
+  /* ─── Global loader ─── */
   function ensureGlobalLoader() {
     let loader = document.querySelector("[data-global-loader]");
     if (loader) return loader;
-
     loader = document.createElement("div");
     loader.className = "global-loader";
     loader.setAttribute("data-global-loader", "");
@@ -14,10 +16,8 @@
       <div class="global-loader-card" role="status" aria-live="polite">
         <div class="spinner"></div>
         <h4>Processing your file...</h4>
-        <p>Please keep this tab open until conversion completes.</p>
-      </div>
-    `;
-
+        <p>Please keep this tab open until processing completes.</p>
+      </div>`;
     document.body.appendChild(loader);
     return loader;
   }
@@ -30,8 +30,9 @@
     document.body.classList.toggle("is-loading", isLoading);
   }
 
+  /* ─── HTTP helpers ─── */
   const postJson = async (endpoint, payload) => {
-    const response = await fetch(`${apiBase}${endpoint}`, {
+    const res = await fetch(`${apiBase}${endpoint}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -40,18 +41,13 @@
       },
       body: JSON.stringify(payload),
     });
-
-    const data = await response.json();
-
-    if (!response.ok || !data.success) {
-      throw new Error(data.message || data.error || "Request failed");
-    }
-
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.message || data.error || "Request failed");
     return data;
   };
 
   const postForm = async (endpoint, formData) => {
-    const response = await fetch(`${apiBase}${endpoint}`, {
+    const res = await fetch(`${apiBase}${endpoint}`, {
       method: "POST",
       body: formData,
       headers: {
@@ -59,16 +55,12 @@
         "X-CSRF-TOKEN": window.appConfig.csrfToken,
       },
     });
-
-    const data = await response.json();
-
-    if (!response.ok || !data.success) {
-      throw new Error(data.message || data.error || "Request failed");
-    }
-
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.message || data.error || "Request failed");
     return data;
   };
 
+  /* ─── Render download results ─── */
   function renderDownloadResults(resultsRoot, items) {
     resultsRoot.innerHTML = "";
     setGlobalLoading(false);
@@ -76,18 +68,21 @@
     (items || []).forEach((item) => {
       const row = document.createElement("div");
       row.className = "result-item";
+
       const preview = item.previewUrl
         ? `<figure class="result-preview"><img src="${item.previewUrl}" alt="${item.filename || "Preview"}" loading="lazy"></figure>`
         : "";
-      const sizeLabel = item.sizeLabel ? `<span class="result-size">${item.sizeLabel}</span>` : "";
+      const sizeLabel = item.sizeLabel
+        ? `<span class="result-size">${item.sizeLabel}</span>`
+        : "";
+
       row.innerHTML = `
         ${preview}
         <main>
           <h4>${item.filename || "Processed file ready"}</h4>
           ${sizeLabel}
-          <p>${item.note || item.downloadUrl || "Server returned success."}</p>
-        </main>
-      `;
+          <p>${item.note || item.downloadUrl || ""}</p>
+        </main>`;
 
       const actions = document.createElement("div");
       actions.className = "item-actions";
@@ -99,32 +94,30 @@
         link.setAttribute("download", item.filename || "download");
         actions.appendChild(link);
       }
-
       if (item.previewUrl) {
-        const previewLink = document.createElement("a");
-        previewLink.href = item.previewUrl;
-        previewLink.textContent = "Open";
-        previewLink.target = "_blank";
-        previewLink.rel = "noopener noreferrer";
-        actions.appendChild(previewLink);
+        const pl = document.createElement("a");
+        pl.href = item.previewUrl;
+        pl.textContent = "Open";
+        pl.target = "_blank";
+        pl.rel = "noopener noreferrer";
+        actions.appendChild(pl);
       }
-
       if (item.fallback && item.fallback.downloadUrl) {
-        const fallbackLink = document.createElement("a");
-        fallbackLink.href = item.fallback.downloadUrl;
-        fallbackLink.textContent = "PNG Fallback";
-        fallbackLink.setAttribute("download", item.fallback.filename || "fallback.png");
-        actions.appendChild(fallbackLink);
+        const fb = document.createElement("a");
+        fb.href = item.fallback.downloadUrl;
+        fb.textContent = "PNG Fallback";
+        fb.setAttribute("download", item.fallback.filename || "fallback.png");
+        actions.appendChild(fb);
       }
 
       row.appendChild(actions);
       resultsRoot.appendChild(row);
     });
 
-    // Keep loader state tied to painted output to avoid visual stuck overlays.
     requestAnimationFrame(() => setGlobalLoading(false));
   }
 
+  /* ─── File manager (dropzone) ─── */
   function createFileManager(root) {
     const state = { files: [] };
     const list = root.querySelector("[data-file-list]");
@@ -143,7 +136,6 @@
         dropzoneFiles.hidden = true;
         dropzone.appendChild(dropzoneFiles);
       }
-
       Array.from(dropzone.children).forEach((child) => {
         if (child === input || child === dropzoneFiles) return;
         child.setAttribute("data-dropzone-default", "");
@@ -152,10 +144,7 @@
 
     const subscribers = [];
     const multiple = dropzone.dataset.multiple === "true";
-    const accept = (dropzone.dataset.accept || "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
+    const accept = (dropzone.dataset.accept || "").split(",").map((v) => v.trim()).filter(Boolean);
     const maxSize = Number(dropzone.dataset.maxSize || 10485760);
 
     const showError = (message) => {
@@ -172,27 +161,19 @@
       });
 
     const syncButtons = () => {
-      root.querySelectorAll("[data-convert], [data-submit]").forEach((btn) => {
-        btn.disabled = state.files.length === 0 || (root.dataset.tool === "pdf-merge" && state.files.length < 2);
+      root.querySelectorAll("[data-convert],[data-submit],[data-ocr-submit]").forEach((btn) => {
+        btn.disabled =
+          state.files.length === 0 ||
+          (root.dataset.tool === "pdf-merge" && state.files.length < 2);
       });
     };
 
-    const notify = () => {
-      subscribers.forEach((listener) => {
-        try {
-          listener([...state.files]);
-        } catch (_) {
-        }
-      });
-    };
+    const notify = () => subscribers.forEach((fn) => { try { fn([...state.files]); } catch (_) {} });
 
     const render = () => {
       if (!list) return;
-
       list.innerHTML = "";
-      if (dropzoneFiles) {
-        dropzoneFiles.innerHTML = "";
-      }
+      if (dropzoneFiles) dropzoneFiles.innerHTML = "";
 
       if (hideDropzoneOnFiles && dropzone) {
         dropzone.hidden = false;
@@ -202,23 +183,14 @@
       if (state.files.length === 0) {
         if (hideDropzoneOnFiles && dropzone) {
           dropzone.classList.remove("has-files");
-          if (dropzoneFiles) {
-            dropzoneFiles.hidden = true;
-          }
+          if (dropzoneFiles) dropzoneFiles.hidden = true;
         }
-
         if (!hideDropzoneOnFiles) {
           const empty = document.createElement("div");
           empty.className = "file-item empty";
-          empty.innerHTML = `
-            <main>
-              <h4>No files selected</h4>
-              <p>Add files to start processing.</p>
-            </main>
-          `;
+          empty.innerHTML = `<main><h4>No file selected</h4><p>Add a file to begin.</p></main>`;
           list.appendChild(empty);
         }
-
         notify();
         return;
       }
@@ -229,19 +201,18 @@
         item.innerHTML = `
           <main>
             <h4>${file.name}</h4>
-            <p>${formatBytes(file.size)} · Ready</p>
+            <p>${formatBytes(file.size)} &middot; Ready</p>
           </main>
-          <div class="item-actions"></div>
-        `;
+          <div class="item-actions"></div>`;
 
         const actions = item.querySelector(".item-actions");
 
         if (root.dataset.tool === "pdf-merge") {
           [["Up", -1], ["Down", 1]].forEach(([label, step]) => {
-            const button = document.createElement("button");
-            button.type = "button";
-            button.textContent = label;
-            button.addEventListener("click", () => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = label;
+            btn.addEventListener("click", () => {
               const target = index + step;
               if (target < 0 || target >= state.files.length) return;
               const next = [...state.files];
@@ -251,7 +222,7 @@
               render();
               syncButtons();
             });
-            actions.appendChild(button);
+            actions.appendChild(btn);
           });
         }
 
@@ -274,11 +245,8 @@
 
       if (hideDropzoneOnFiles && dropzone) {
         dropzone.classList.add("has-files");
-        if (dropzoneFiles) {
-          dropzoneFiles.hidden = false;
-        }
+        if (dropzoneFiles) dropzoneFiles.hidden = false;
       }
-
       notify();
     };
 
@@ -286,79 +254,126 @@
       showError("");
       const batch = Array.from(incoming || []);
       const valid = [];
-
       for (const file of batch) {
-        if (!isValidFile(file)) {
-          showError(`Invalid file type: ${file.name}`);
-          continue;
-        }
-        if (file.size > maxSize) {
-          showError(`File too large: ${file.name}`);
-          continue;
-        }
+        if (!isValidFile(file)) { showError(`Invalid file type: ${file.name}`); continue; }
+        if (file.size > maxSize) { showError(`File too large: ${file.name}`); continue; }
         valid.push(file);
       }
-
       state.files = multiple ? [...state.files, ...valid] : valid.slice(0, 1);
       render();
       syncButtons();
     };
 
-    input.addEventListener("change", (event) => {
-      addFiles(event.target.files);
-      input.value = "";
-    });
+    input.addEventListener("change", (e) => { addFiles(e.target.files); input.value = ""; });
+    ["dragenter", "dragover"].forEach((n) => dropzone.addEventListener(n, (e) => { e.preventDefault(); dropzone.classList.add("dragover"); }));
+    ["dragleave", "drop"].forEach((n) => dropzone.addEventListener(n, (e) => { e.preventDefault(); dropzone.classList.remove("dragover"); }));
+    dropzone.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
 
-    ["dragenter", "dragover"].forEach((name) =>
-      dropzone.addEventListener(name, (event) => {
-        event.preventDefault();
-        dropzone.classList.add("dragover");
-      }),
-    );
+    const subscribe = (fn) => {
+      subscribers.push(fn);
+      fn([...state.files]);
+      return () => { const i = subscribers.indexOf(fn); if (i !== -1) subscribers.splice(i, 1); };
+    };
 
-    ["dragleave", "drop"].forEach((name) =>
-      dropzone.addEventListener(name, (event) => {
-        event.preventDefault();
-        dropzone.classList.remove("dragover");
-      }),
-    );
-
-    dropzone.addEventListener("drop", (event) => addFiles(event.dataTransfer.files));
-
-    const subscribe = (listener) => {
-      subscribers.push(listener);
-      listener([...state.files]);
-
-      return () => {
-        const index = subscribers.indexOf(listener);
-        if (index !== -1) {
-          subscribers.splice(index, 1);
-        }
-      };
+    const reset = () => {
+      showError("");
+      state.files = [];
+      render();
+      syncButtons();
     };
 
     render();
     syncButtons();
-
-    return { state, showError, syncButtons, subscribe };
+    return { state, showError, syncButtons, subscribe, reset };
   }
 
-  function setupImageTool(root, mode) {
-    const manager = createFileManager(root);
-    const convertBtn = root.querySelector("[data-convert]");
-    const results = root.querySelector("[data-results]");
-    const status = root.querySelector("[data-status]");
-    const qualityRange = root.querySelector("[data-quality-range]");
-    const qualityValue = root.querySelector("[data-quality-value]");
-    const formatSelect = root.querySelector("[data-format]");
+  /* ─── Scale slider: read real image dimensions ─── */
+  async function getImageNaturalDims(file) {
+    return new Promise((resolve) => {
+      if (!file || !file.type.startsWith("image/")) return resolve(null);
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve({ w: img.naturalWidth, h: img.naturalHeight }); };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    });
+  }
+
+  function setupScaleSlider(root, manager) {
+    const scaleRange = root.querySelector("[data-scale-range]");
+    const scaleValue = root.querySelector("[data-scale-value]");
+    const scaleDims  = root.querySelector("[data-scale-dims]");
     const widthInput = root.querySelector("[data-width]");
     const heightInput = root.querySelector("[data-height]");
-    const aspectLock = root.querySelector("[data-lock-aspect]");
-    const estimatedSize = root.querySelector("[data-estimated-size]");
-    let activeImageRequest = 0;
+
+    if (!scaleRange || !scaleValue) return;
+
+    let sourceDims = null;
+
+    const updateDimsLabel = () => {
+      const pct = parseInt(scaleRange.value, 10);
+      scaleValue.textContent = pct + "%";
+
+      if (!scaleDims) return;
+
+      if (!sourceDims) {
+        scaleDims.textContent = "Upload an image to see output dimensions";
+        return;
+      }
+
+      const outW = Math.max(1, Math.round(sourceDims.w * pct / 100));
+      const outH = Math.max(1, Math.round(sourceDims.h * pct / 100));
+
+      if (pct === 100) {
+        scaleDims.textContent = `${sourceDims.w} × ${sourceDims.h} px (original)`;
+      } else {
+        scaleDims.textContent = `${sourceDims.w} × ${sourceDims.h} → ${outW} × ${outH} px`;
+      }
+
+      /* sync width/height inputs on resizer tool */
+      if (widthInput && heightInput) {
+        widthInput.value  = outW;
+        heightInput.value = outH;
+      }
+    };
+
+    scaleRange.addEventListener("input", updateDimsLabel);
+
+    manager.subscribe(async (files) => {
+      if (!files.length) {
+        sourceDims = null;
+        updateDimsLabel();
+        return;
+      }
+      sourceDims = await getImageNaturalDims(files[0]);
+      updateDimsLabel();
+    });
+
+    updateDimsLabel();
+  }
+
+  /* ─── Image tools (compress, resize, convert, jpg-to-png, png-to-webp) ─── */
+  function setupImageTool(root, mode) {
+    const manager      = createFileManager(root);
+    const convertBtn   = root.querySelector("[data-convert]");
+    const results      = root.querySelector("[data-results]");
+    const status       = root.querySelector("[data-status]");
+    const qualityRange = root.querySelector("[data-quality-range]");
+    const qualityValue = root.querySelector("[data-quality-value]");
+    const scaleRange   = root.querySelector("[data-scale-range]");
+    const formatSelect = root.querySelector("[data-format]");
+    const widthInput   = root.querySelector("[data-width]");
+    const heightInput  = root.querySelector("[data-height]");
+    const aspectLock   = root.querySelector("[data-lock-aspect]");
+    const estimatedSize= root.querySelector("[data-estimated-size]");
+
+    let activeRequest = 0;
     let estimateToken = 0;
     let estimateTimer = null;
     const estimateCache = new Map();
+
+    /* set up scale slider */
+    setupScaleSlider(root, manager);
 
     const normalizeSourceMime = (mime) => {
       if (!mime || typeof mime !== "string") return "image/jpeg";
@@ -369,35 +384,25 @@
 
     const toBlobAsync = (canvas, format, quality) =>
       new Promise((resolve) => {
-        if (format === "image/png") {
-          canvas.toBlob((blob) => resolve(blob), format);
-          return;
-        }
-        canvas.toBlob((blob) => resolve(blob), format, quality);
+        if (format === "image/png") { canvas.toBlob((b) => resolve(b), format); return; }
+        canvas.toBlob((b) => resolve(b), format, quality);
       });
 
     const estimateEncodedFileSize = async (file, targetFormat, qualityFraction) => {
       const key = `${file.name}:${file.size}:${file.lastModified}:${targetFormat}:${qualityFraction ?? "na"}`;
-      if (estimateCache.has(key)) {
-        return estimateCache.get(key);
-      }
-
-      if (!file.type.startsWith("image/")) {
-        return file.size;
-      }
+      if (estimateCache.has(key)) return estimateCache.get(key);
+      if (!file.type.startsWith("image/")) return file.size;
 
       let bitmap;
       try {
         bitmap = await createImageBitmap(file);
-        const maxDimension = 2500;
-        const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
-        const width = Math.max(1, Math.round(bitmap.width * scale));
-        const height = Math.max(1, Math.round(bitmap.height * scale));
+        const maxDim = 2500;
+        const scale  = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+        const w = Math.max(1, Math.round(bitmap.width * scale));
+        const h = Math.max(1, Math.round(bitmap.height * scale));
         const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const context = canvas.getContext("2d");
-        context.drawImage(bitmap, 0, 0, width, height);
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
         const blob = await toBlobAsync(canvas, targetFormat, qualityFraction);
         const size = blob ? blob.size : Math.max(1024, Math.round(file.size * 0.65));
         estimateCache.set(key, size);
@@ -407,154 +412,79 @@
         estimateCache.set(key, fallback);
         return fallback;
       } finally {
-        if (bitmap && typeof bitmap.close === "function") {
-          bitmap.close();
-        }
-      }
-    };
-
-    const estimateResizedFileSize = async (file) => {
-      if (!file.type.startsWith("image/")) {
-        return file.size;
-      }
-
-      let bitmap;
-      try {
-        bitmap = await createImageBitmap(file);
-        const sourceWidth = Math.max(1, bitmap.width || 1);
-        const sourceHeight = Math.max(1, bitmap.height || 1);
-        const sourcePixels = sourceWidth * sourceHeight;
-
-        const requestedWidth = Math.max(1, Number(widthInput && widthInput.value ? widthInput.value : sourceWidth));
-        const requestedHeight = Math.max(1, Number(heightInput && heightInput.value ? heightInput.value : sourceHeight));
-
-        let targetWidth = requestedWidth;
-        let targetHeight = requestedHeight;
-
-        if (aspectLock && aspectLock.checked) {
-          const sourceAspect = sourceWidth / sourceHeight;
-          const widthRatio = requestedWidth / sourceWidth;
-          const heightRatio = requestedHeight / sourceHeight;
-          const ratio = Math.min(widthRatio, heightRatio);
-          targetWidth = Math.max(1, Math.round(sourceWidth * ratio));
-          targetHeight = Math.max(1, Math.round(sourceHeight * ratio));
-        }
-
-        const targetPixels = Math.max(1, targetWidth * targetHeight);
-        const pixelRatio = Math.max(0.03, Math.min(4, targetPixels / sourcePixels));
-        const format = normalizeSourceMime(file.type);
-        const formatFactor = format === "image/png" ? 1.08 : format === "image/webp" ? 0.78 : 0.88;
-        return Math.max(1024, Math.round((file.size || 0) * Math.pow(pixelRatio, 0.92) * formatFactor));
-      } catch (_) {
-        return Math.max(1024, Math.round((file.size || 0) * 0.75));
-      } finally {
-        if (bitmap && typeof bitmap.close === "function") {
-          bitmap.close();
-        }
+        if (bitmap && typeof bitmap.close === "function") bitmap.close();
       }
     };
 
     const resolveEstimateTarget = () => {
-      if (mode === "jpg-to-png") {
-        return "image/png";
-      }
-      if (mode === "png-to-webp") {
-        return "image/webp";
-      }
+      if (mode === "jpg-to-png") return "image/png";
+      if (mode === "png-to-webp") return "image/webp";
       if (mode === "compressor") {
-        if (!formatSelect || formatSelect.value === "auto") {
-          return "auto-source";
-        }
+        if (!formatSelect || formatSelect.value === "auto") return "auto-source";
         return formatSelect.value;
       }
       if (mode === "image-converter") {
-        const convertFormat = root.querySelector("[data-convert-format]");
-        return convertFormat ? convertFormat.value : "image/webp";
+        const cf = root.querySelector("[data-convert-format]");
+        return cf ? cf.value : "image/webp";
       }
       return "image/webp";
     };
 
     const estimateOutputSize = () => {
       if (!estimatedSize) return;
-
-      if (!manager.state.files.length) {
-        estimatedSize.textContent = "Estimated output size: -";
-        return;
-      }
+      if (!manager.state.files.length) { estimatedSize.textContent = "Estimated output size: —"; return; }
 
       const token = ++estimateToken;
       const targetFormat = resolveEstimateTarget();
-      const qualityNumber = Number(qualityRange ? qualityRange.value : 85);
-      const qualityFraction = targetFormat === "image/png" ? undefined : Math.max(0.1, Math.min(1, qualityNumber / 100));
+      const qualityNum = Number(qualityRange ? qualityRange.value : 85);
+      const qualityFraction = targetFormat === "image/png" ? undefined : Math.max(0.1, Math.min(1, qualityNum / 100));
+      const scalePct = scaleRange ? parseInt(scaleRange.value, 10) : 100;
       const files = [...manager.state.files];
 
-      estimatedSize.textContent = "Estimating output size...";
+      estimatedSize.textContent = "Estimating...";
       clearTimeout(estimateTimer);
       estimateTimer = setTimeout(async () => {
-        const sampleLimit = 4;
-        const sample = files.slice(0, sampleLimit);
-        const totalSource = files.reduce((sum, file) => sum + (file.size || 0), 0);
-
-        let sampleSource = 0;
-        let sampleEstimated = 0;
+        const sample = files.slice(0, 4);
+        let sampleSource = 0, sampleEstimated = 0;
+        const totalSource = files.reduce((s, f) => s + (f.size || 0), 0);
 
         for (const file of sample) {
           sampleSource += file.size || 0;
-          if (mode === "resizer") {
-            sampleEstimated += await estimateResizedFileSize(file);
+          const effectiveTarget = targetFormat === "auto-source" ? normalizeSourceMime(file.type) : targetFormat;
+
+          let est;
+          if (mode === "resizer" || scalePct !== 100) {
+            /* scale affects dimensions, estimate proportionally */
+            const sr = (scalePct / 100) ** 2;
+            const baseEst = await estimateEncodedFileSize(file, effectiveTarget === "auto-source" ? "image/jpeg" : effectiveTarget, qualityFraction);
+            est = Math.max(1024, Math.round(baseEst * sr));
           } else {
-            const effectiveTarget =
-              targetFormat === "auto-source"
-                ? normalizeSourceMime(file.type)
-                : targetFormat;
-            sampleEstimated += await estimateEncodedFileSize(file, effectiveTarget, qualityFraction);
+            est = await estimateEncodedFileSize(file, effectiveTarget, qualityFraction);
           }
-          if (token !== estimateToken) {
-            return;
-          }
+
+          sampleEstimated += est;
+          if (token !== estimateToken) return;
         }
 
-        let estimatedBytes = sampleEstimated;
+        let totalEst = sampleEstimated;
         if (files.length > sample.length && sampleSource > 0) {
-          const remainingSource = Math.max(0, totalSource - sampleSource);
-          estimatedBytes += Math.round((sampleEstimated / sampleSource) * remainingSource);
+          totalEst += Math.round((sampleEstimated / sampleSource) * Math.max(0, totalSource - sampleSource));
         }
-
-        if (token !== estimateToken) {
-          return;
-        }
-
-        estimatedSize.textContent = `Estimated output size: ${formatBytes(Math.max(1024, estimatedBytes))}`;
+        if (token !== estimateToken) return;
+        estimatedSize.textContent = `Estimated output size: ${formatBytes(Math.max(1024, totalEst))}`;
       }, 130);
     };
 
     if (qualityRange && qualityValue) {
-      qualityRange.addEventListener("input", () => {
-        qualityValue.textContent = `${qualityRange.value}%`;
-        estimateOutputSize();
-      });
+      qualityRange.addEventListener("input", () => { qualityValue.textContent = `${qualityRange.value}%`; estimateOutputSize(); });
     }
-
-    if (formatSelect) {
-      formatSelect.addEventListener("change", estimateOutputSize);
-    }
-
-    if (widthInput) {
-      widthInput.addEventListener("input", estimateOutputSize);
-    }
-
-    if (heightInput) {
-      heightInput.addEventListener("input", estimateOutputSize);
-    }
-
-    if (aspectLock) {
-      aspectLock.addEventListener("change", estimateOutputSize);
-    }
-
+    if (scaleRange) scaleRange.addEventListener("input", estimateOutputSize);
+    if (formatSelect) formatSelect.addEventListener("change", estimateOutputSize);
     const convertFormatSelect = root.querySelector("[data-convert-format]");
-    if (convertFormatSelect) {
-      convertFormatSelect.addEventListener("change", estimateOutputSize);
-    }
+    if (convertFormatSelect) convertFormatSelect.addEventListener("change", estimateOutputSize);
+    if (widthInput) widthInput.addEventListener("input", estimateOutputSize);
+    if (heightInput) heightInput.addEventListener("input", estimateOutputSize);
+    if (aspectLock) aspectLock.addEventListener("change", estimateOutputSize);
 
     const setStatus = (message, type = "idle") => {
       if (!status) return;
@@ -564,68 +494,207 @@
       if (type) status.classList.add(type);
     };
 
-    setStatus("Ready. Upload your file and start.");
-    manager.subscribe(() => {
-      estimateOutputSize();
-    });
+    setStatus("Ready. Upload a file and hit Convert.");
+    manager.subscribe(() => estimateOutputSize());
+
+    /* Collect elements to hide during "converted" state */
+    const collectUploadEls = () => [
+      root.querySelector("[data-dropzone]"),
+      ...root.querySelectorAll(".option-bar"),
+      ...root.querySelectorAll(".option-grid"),
+      root.querySelector(".action-row.left"),   /* estimated-size row */
+      root.querySelector(".tool-notes"),
+    ].filter(Boolean);
+
+    const hideUploadZone = () => collectUploadEls().forEach((el) => { el.hidden = true; });
+    const showUploadZone = () => collectUploadEls().forEach((el) => { el.hidden = false; });
+
+    const showResetZone = () => {
+      /* remove any existing reset zone */
+      const existing = root.querySelector(".reset-zone");
+      if (existing) existing.remove();
+
+      const zone = document.createElement("div");
+      zone.className = "reset-zone";
+      zone.innerHTML = `<button class="button secondary" type="button">Convert another file</button>`;
+      zone.querySelector("button").addEventListener("click", () => {
+        /* reset back to upload state */
+        results.innerHTML = "";
+        zone.remove();
+        showUploadZone();
+        const convertRow = convertBtn.closest(".action-row");
+        if (convertRow) convertRow.hidden = false;
+        if (status) status.hidden = true;
+        manager.reset();
+        estimateOutputSize();
+      });
+
+      results.after(zone);
+    };
 
     convertBtn.addEventListener("click", async () => {
       if (!manager.state.files.length) return;
-      activeImageRequest += 1;
-      const requestId = activeImageRequest;
+      activeRequest += 1;
+      const requestId = activeRequest;
 
       const formData = new FormData();
-      manager.state.files.forEach((file, index) => formData.append(`files[${index}]`, file));
+      manager.state.files.forEach((file, i) => formData.append(`files[${i}]`, file));
+
+      const scale = scaleRange ? parseInt(scaleRange.value, 10) : 100;
+      formData.append("scale", String(scale));
 
       let endpoint = "/images/jpg-to-png";
 
       if (mode === "png-to-webp") {
         endpoint = "/images/png-to-webp";
-        formData.append("quality", qualityRange.value);
+        if (qualityRange) formData.append("quality", qualityRange.value);
       } else if (mode === "compressor") {
         endpoint = "/images/compress";
-        formData.append("quality", qualityRange.value);
-        formData.append("format", formatSelect.value);
+        if (qualityRange) formData.append("quality", qualityRange.value);
+        if (formatSelect) formData.append("format", formatSelect.value);
       } else if (mode === "resizer") {
         endpoint = "/images/resize";
-        formData.append("width", widthInput.value);
-        formData.append("height", heightInput.value);
-        formData.append("lock_aspect", aspectLock.checked ? "1" : "0");
+        formData.append("width",  widthInput  ? widthInput.value  : "1200");
+        formData.append("height", heightInput ? heightInput.value : "800");
+        formData.append("lock_aspect", aspectLock && aspectLock.checked ? "1" : "0");
       } else if (mode === "image-converter") {
         endpoint = "/images/convert";
-        const convertFormat = root.querySelector("[data-convert-format]");
-        formData.append("quality", qualityRange ? qualityRange.value : "85");
-        formData.append("format", convertFormat.value);
+        if (qualityRange) formData.append("quality", qualityRange.value);
+        if (convertFormatSelect) formData.append("format", convertFormatSelect.value);
       }
 
       manager.showError("");
       results.innerHTML = "";
       convertBtn.disabled = true;
       setGlobalLoading(true);
-      setStatus("Processing your file...", "loading");
+      setStatus("Processing your image...", "loading");
 
       try {
         const data = await postForm(endpoint, formData);
+
+        /* ── Smooth transition: hide upload zone, reveal results ── */
+        hideUploadZone();
+        const convertRow = convertBtn.closest(".action-row");
+        if (convertRow) convertRow.hidden = true;
+        if (status) status.hidden = true;
+
         renderDownloadResults(results, data.downloads || []);
-        setStatus("File processed successfully.", "success");
-        estimateOutputSize();
-      } catch (error) {
-        manager.showError(error.message || "Processing failed");
+        showResetZone();
+
+        /* scroll results smoothly into view */
+        requestAnimationFrame(() => results.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+      } catch (err) {
+        manager.showError(err.message || "Processing failed.");
         setGlobalLoading(false);
-        setStatus("Processing failed. Please review the error and try again.", "error");
-      } finally {
-        if (requestId === activeImageRequest) {
-          setGlobalLoading(false);
-        }
+        setStatus("Processing failed. Please check the error and try again.", "error");
         manager.syncButtons();
+      } finally {
+        if (requestId === activeRequest) setGlobalLoading(false);
       }
     });
   }
 
+  /* ─── Image-to-Text (OCR) tool ─── */
+  function setupOcrTool(root) {
+    const manager    = createFileManager(root);
+    const submitBtn  = root.querySelector("[data-ocr-submit]");
+    const langSelect = root.querySelector("[data-ocr-language]");
+    const status     = root.querySelector("[data-status]");
+    const resultWrap = root.querySelector("[data-ocr-result]");
+    const outputArea = root.querySelector("[data-ocr-output]");
+    const copyBtn    = root.querySelector("[data-ocr-copy]");
+    const dlBtn      = root.querySelector("[data-ocr-download]");
+    const clearBtn   = root.querySelector("[data-ocr-clear]");
+    const wordCount  = root.querySelector("[data-ocr-word-count]");
+    const charCount  = root.querySelector("[data-ocr-char-count]");
+
+    const setStatus = (msg, type = "idle") => {
+      if (!status) return;
+      status.hidden = !msg;
+      status.textContent = msg || "";
+      status.classList.remove("success", "loading", "error");
+      if (type) status.classList.add(type);
+    };
+
+    setStatus("Ready. Upload an image containing text.");
+
+    submitBtn.addEventListener("click", async () => {
+      if (!manager.state.files.length) return;
+
+      const file = manager.state.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+      if (langSelect) formData.append("language", langSelect.value);
+
+      submitBtn.disabled = true;
+      if (resultWrap) resultWrap.hidden = true;
+      manager.showError("");
+      setGlobalLoading(true);
+      setStatus("Extracting text from your image...", "loading");
+
+      try {
+        const data = await postForm("/images/ocr", formData);
+
+        if (outputArea) outputArea.value = data.text || "";
+        if (wordCount)  wordCount.textContent  = `${data.words || 0} words`;
+        if (charCount)  charCount.textContent  = `${data.chars || 0} characters`;
+        if (resultWrap) resultWrap.hidden = false;
+
+        setStatus("Text extracted successfully.", "success");
+      } catch (err) {
+        manager.showError(err.message || "OCR extraction failed.");
+        setStatus("Extraction failed. Please check the error above.", "error");
+      } finally {
+        setGlobalLoading(false);
+        manager.syncButtons();
+      }
+    });
+
+    if (copyBtn && outputArea) {
+      copyBtn.addEventListener("click", async () => {
+        if (!outputArea.value) return;
+        try {
+          await navigator.clipboard.writeText(outputArea.value);
+          const original = copyBtn.textContent;
+          copyBtn.textContent = "Copied!";
+          setTimeout(() => { copyBtn.textContent = original; }, 1500);
+        } catch (_) {
+          outputArea.select();
+          document.execCommand("copy");
+        }
+      });
+    }
+
+    if (dlBtn && outputArea) {
+      dlBtn.addEventListener("click", () => {
+        const text = outputArea.value;
+        if (!text) return;
+        const blob = new Blob([text], { type: "text/plain" });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement("a");
+        a.href     = url;
+        a.download = "extracted-text.txt";
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        if (outputArea) outputArea.value = "";
+        if (resultWrap) resultWrap.hidden = true;
+        if (wordCount)  wordCount.textContent = "";
+        if (charCount)  charCount.textContent = "";
+        setStatus("Ready. Upload an image containing text.");
+      });
+    }
+  }
+
+  /* ─── Word counter ─── */
   function renderWordCounter(root) {
     const input = root.querySelector("[data-text-input]");
     const stats = root.querySelector("[data-stats]");
-    const copy = root.querySelector("[data-copy]");
+    const copy  = root.querySelector("[data-copy]");
     const clear = root.querySelector("[data-clear]");
     let timer = null;
 
@@ -635,58 +704,52 @@
         stats.innerHTML = (data.stats || [])
           .map((item) => `<div class="stat-card"><strong>${item.value}</strong><span>${item.label}</span></div>`)
           .join("");
-      } catch (_) {
-      }
+      } catch (_) {}
     };
 
-    input.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(calculate, 200);
-    });
-
+    input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(calculate, 200); });
     calculate();
 
-    clear.addEventListener("click", () => {
-      input.value = "";
-      calculate();
-    });
+    if (copy) {
+      copy.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(input.value);
+        const orig = copy.textContent;
+        copy.textContent = "Copied!";
+        setTimeout(() => { copy.textContent = orig; }, 1500);
+      });
+    }
+    if (clear) { clear.addEventListener("click", () => { input.value = ""; calculate(); }); }
   }
 
+  /* ─── Case converter ─── */
   function renderCaseConverter(root) {
     const input = root.querySelector("[data-text-input]");
-    const copy = root.querySelector("[data-copy]");
+    const copy  = root.querySelector("[data-copy]");
     const clear = root.querySelector("[data-clear]");
 
-    root.querySelectorAll("[data-case]").forEach((button) => {
-      button.addEventListener("click", async () => {
+    root.querySelectorAll("[data-case]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
         try {
-          const data = await postJson("/text/case-convert", {
-            text: input.value,
-            mode: button.dataset.case,
-          });
+          const data = await postJson("/text/case-convert", { text: input.value, mode: btn.dataset.case });
           input.value = data.text || "";
-        } catch (_) {
-        }
+        } catch (_) {}
       });
     });
 
     if (copy) {
-      let copyTimer = null;
+      let t = null;
       copy.addEventListener("click", async () => {
         await navigator.clipboard.writeText(input.value);
-        const original = copy.textContent;
-        copy.textContent = "Copied";
-        clearTimeout(copyTimer);
-        copyTimer = setTimeout(() => {
-          copy.textContent = original;
-        }, 1500);
+        const orig = copy.textContent;
+        copy.textContent = "Copied!";
+        clearTimeout(t);
+        t = setTimeout(() => { copy.textContent = orig; }, 1500);
       });
     }
-    clear.addEventListener("click", () => {
-      input.value = "";
-    });
+    if (clear) { clear.addEventListener("click", () => { input.value = ""; }); }
   }
 
+  /* ─── PDF split range builder ─── */
   function buildRangeRow(index, start = "", end = "") {
     const row = document.createElement("div");
     row.className = "range-row";
@@ -695,47 +758,31 @@
       <input type="number" min="1" placeholder="Start" value="${start}" data-range-start>
       <span>to</span>
       <input type="number" min="1" placeholder="End" value="${end}" data-range-end>
-      <button type="button">Remove</button>
-    `;
+      <button type="button">Remove</button>`;
     return row;
   }
 
+  /* ─── Document tools ─── */
   function submitDocumentTool(root, endpoint, mode) {
-    const manager = createFileManager(root);
-    const submit = root.querySelector("[data-submit]");
-    const results = root.querySelector("[data-results]");
+    const manager    = createFileManager(root);
+    const submit     = root.querySelector("[data-submit]");
+    const results    = root.querySelector("[data-results]");
     const rangesWrap = root.querySelector("[data-ranges]");
-    const addRange = root.querySelector("[data-add-range]");
-    const status = root.querySelector("[data-status]");
-    const dropzone = root.querySelector("[data-dropzone]");
+    const addRange   = root.querySelector("[data-add-range]");
+    const status     = root.querySelector("[data-status]");
+    const dropzone   = root.querySelector("[data-dropzone]");
 
     const labels = {
-      "pdf-to-word": {
-        idle: "Convert PDF to Word",
-        processing: "Converting to DOCX...",
-        done: "PDF converted successfully",
-      },
-      "word-to-pdf": {
-        idle: "Convert Word to PDF",
-        processing: "Converting to PDF...",
-        done: "Word converted successfully",
-      },
-      "pdf-merge": {
-        idle: "Merge PDFs",
-        processing: "Merging PDFs...",
-        done: "PDFs merged successfully",
-      },
-      "pdf-split": {
-        idle: "Split PDF",
-        processing: "Splitting PDF...",
-        done: "PDF split successfully",
-      },
+      "pdf-to-word": { idle: "Convert PDF to Word",  processing: "Converting to DOCX...", done: "Converted successfully" },
+      "word-to-pdf": { idle: "Convert Word to PDF",  processing: "Converting to PDF...",  done: "Converted successfully" },
+      "pdf-merge":   { idle: "Merge PDFs",            processing: "Merging PDFs...",        done: "PDFs merged successfully" },
+      "pdf-split":   { idle: "Split PDF",             processing: "Splitting PDF...",       done: "PDF split successfully" },
     };
 
-    const setStatus = (message, type = "idle") => {
+    const setStatus = (msg, type = "idle") => {
       if (!status) return;
-      status.hidden = !message;
-      status.textContent = message || "";
+      status.hidden = !msg;
+      status.textContent = msg || "";
       status.classList.remove("success", "loading", "error");
       if (type) status.classList.add(type);
     };
@@ -743,50 +790,37 @@
     const setBusy = (busy) => {
       submit.disabled = busy;
       submit.textContent = busy ? labels[mode].processing : labels[mode].idle;
-      if (dropzone) {
-        dropzone.classList.toggle("busy", busy);
-      }
-      if (addRange) {
-        addRange.disabled = busy;
-      }
-      root.querySelectorAll(".range-row button").forEach((button) => {
-        button.disabled = busy || root.querySelectorAll(".range-row").length === 1;
+      if (dropzone) dropzone.classList.toggle("busy", busy);
+      if (addRange) addRange.disabled = busy;
+      root.querySelectorAll(".range-row button").forEach((b) => {
+        b.disabled = busy || root.querySelectorAll(".range-row").length === 1;
       });
       setGlobalLoading(busy);
     };
 
-    setStatus("Ready. Upload your file and start.");
+    setStatus("Ready. Upload a file and start.");
 
     if (mode === "pdf-split") {
       const syncRows = () => {
-        rangesWrap.querySelectorAll(".range-row").forEach((row, index) => {
-          row.querySelector("strong").textContent = `#${index + 1}`;
+        rangesWrap.querySelectorAll(".range-row").forEach((row, i) => {
+          row.querySelector("strong").textContent = `#${i + 1}`;
           row.querySelector("button").disabled = rangesWrap.querySelectorAll(".range-row").length === 1;
         });
       };
 
       const createRow = (start, end) => {
         const row = buildRangeRow(rangesWrap.querySelectorAll(".range-row").length, start, end);
-        row.querySelector("button").addEventListener("click", () => {
-          row.remove();
-          syncRows();
-        });
-        row.querySelectorAll("input").forEach((input) => {
-          input.addEventListener("input", () => {
-            manager.showError("");
-            setStatus("Range updated. Ready to split.");
-          });
-        });
+        row.querySelector("button").addEventListener("click", () => { row.remove(); syncRows(); });
+        row.querySelectorAll("input").forEach((inp) => inp.addEventListener("input", () => {
+          manager.showError("");
+          setStatus("Range updated. Ready to split.");
+        }));
         return row;
       };
 
       rangesWrap.appendChild(createRow("1", "1"));
       syncRows();
-
-      addRange.addEventListener("click", () => {
-        rangesWrap.appendChild(createRow("", ""));
-        syncRows();
-      });
+      addRange.addEventListener("click", () => { rangesWrap.appendChild(createRow("", "")); syncRows(); });
     }
 
     submit.addEventListener("click", async () => {
@@ -798,9 +832,8 @@
       setStatus(labels[mode].processing, "loading");
 
       const formData = new FormData();
-
       if (mode === "pdf-merge") {
-        manager.state.files.forEach((file, index) => formData.append(`files[${index}]`, file));
+        manager.state.files.forEach((file, i) => formData.append(`files[${i}]`, file));
       } else {
         formData.append("file", manager.state.files[0]);
       }
@@ -808,24 +841,24 @@
       if (mode === "pdf-split") {
         const ranges = [...rangesWrap.querySelectorAll(".range-row")]
           .map((row) => `${row.querySelector("[data-range-start]").value}-${row.querySelector("[data-range-end]").value}`)
-          .filter((value) => /^\d+-\d+$/.test(value));
+          .filter((v) => /^\d+-\d+$/.test(v));
 
         if (!ranges.length) {
           manager.showError("Please add at least one valid page range.");
-          setStatus("Please fix page ranges before processing.", "error");
-          manager.syncButtons();
+          setStatus("Fix page ranges before processing.", "error");
           setBusy(false);
+          manager.syncButtons();
           return;
         }
 
-        const hasInvalidRange = ranges.some((value) => {
-          const [start, end] = value.split("-").map((item) => Number(item));
-          return Number.isNaN(start) || Number.isNaN(end) || start < 1 || end < start;
+        const invalid = ranges.some((v) => {
+          const [s, e] = v.split("-").map(Number);
+          return isNaN(s) || isNaN(e) || s < 1 || e < s;
         });
 
-        if (hasInvalidRange) {
-          manager.showError("Each range must have valid numbers and End must be greater than or equal to Start.");
-          setStatus("Please correct invalid ranges.", "error");
+        if (invalid) {
+          manager.showError("Each range must have valid numbers and End ≥ Start.");
+          setStatus("Correct invalid ranges.", "error");
           setBusy(false);
           manager.syncButtons();
           return;
@@ -836,14 +869,11 @@
 
       try {
         const data = await postForm(endpoint, formData);
-        renderDownloadResults(
-          results,
-          data.downloads || [{ filename: data.filename, downloadUrl: data.downloadUrl, note: data.message }],
-        );
+        renderDownloadResults(results, data.downloads || [{ filename: data.filename, downloadUrl: data.downloadUrl, note: data.message }]);
         setStatus(labels[mode].done, "success");
-      } catch (error) {
-        manager.showError(error.message || "Request failed");
-        setStatus("Processing failed. Please review the error and try again.", "error");
+      } catch (err) {
+        manager.showError(err.message || "Request failed.");
+        setStatus("Processing failed. Please check the error and try again.", "error");
       } finally {
         manager.syncButtons();
         setBusy(false);
@@ -851,12 +881,12 @@
     });
   }
 
+  /* ─── Returning visitor card ─── */
   function setupReturningVisitorCard() {
-    const card = document.querySelector("[data-last-tool-card]");
-    const text = document.querySelector("[data-last-tool-text]");
-    const link = document.querySelector("[data-last-tool-link]");
+    const card   = document.querySelector("[data-last-tool-card]");
+    const text   = document.querySelector("[data-last-tool-text]");
+    const link   = document.querySelector("[data-last-tool-link]");
     const cancel = document.querySelector("[data-last-tool-cancel]");
-
     if (!card || !text || !link) return;
 
     const raw = localStorage.getItem(LAST_TOOL_KEY);
@@ -866,77 +896,66 @@
       const parsed = JSON.parse(raw);
       if (!parsed || !parsed.href || !parsed.title) return;
       card.hidden = false;
-      text.textContent = `Last tool: ${parsed.title}`;
+      text.textContent = `Last used: ${parsed.title}`;
       link.href = parsed.href;
-
-      if (cancel) {
-        cancel.addEventListener("click", () => {
-          card.hidden = true;
-        });
-      }
+      if (cancel) cancel.addEventListener("click", () => { card.hidden = true; });
     } catch (_) {
       localStorage.removeItem(LAST_TOOL_KEY);
     }
   }
 
+  /* ─── Tool tab filter ─── */
   function setupToolTabs() {
-    const tabs = Array.from(document.querySelectorAll("[data-tool-tab]"));
+    const tabs  = Array.from(document.querySelectorAll("[data-tool-tab]"));
     const cards = Array.from(document.querySelectorAll("[data-tool-category]"));
-
     if (!tabs.length || !cards.length) return;
 
     const applyFilter = (filter) => {
       cards.forEach((card) => {
-        const cardCategory = card.dataset.toolCategory;
-        card.hidden = !(filter === "all" || cardCategory === filter);
+        card.hidden = !(filter === "all" || card.dataset.toolCategory === filter);
       });
-
       tabs.forEach((tab) => {
-        const isActive = tab.dataset.toolTab === filter;
-        tab.classList.toggle("is-active", isActive);
-        tab.setAttribute("aria-selected", isActive ? "true" : "false");
+        const active = tab.dataset.toolTab === filter;
+        tab.classList.toggle("is-active", active);
+        tab.setAttribute("aria-selected", active ? "true" : "false");
       });
     };
 
-    tabs.forEach((tab) => {
-      tab.addEventListener("click", () => {
-        applyFilter(tab.dataset.toolTab || "all");
-      });
-    });
-
+    tabs.forEach((tab) => tab.addEventListener("click", () => applyFilter(tab.dataset.toolTab || "all")));
     applyFilter("all");
   }
 
+  /* ─── Helpers ─── */
   function formatBytes(value) {
     if (value < 1024) return `${value} B`;
     if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
     return `${(value / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  /* ─── Bootstrap ─── */
   document.querySelectorAll(".tool-app").forEach((root) => {
     const tool = root.dataset.tool;
 
-    if (tool === "jpg-to-png" || tool === "png-to-webp" || tool === "compressor" || tool === "resizer" || tool === "image-converter") {
+    if (["jpg-to-png", "png-to-webp", "compressor", "resizer", "image-converter"].includes(tool)) {
       setupImageTool(root, tool);
     }
 
-    if (tool === "word-counter") renderWordCounter(root);
+    if (tool === "img-to-text")   setupOcrTool(root);
+    if (tool === "word-counter")  renderWordCounter(root);
     if (tool === "case-converter") renderCaseConverter(root);
-    if (tool === "pdf-to-word") submitDocumentTool(root, "/convert/pdf-to-word", tool);
-    if (tool === "word-to-pdf") submitDocumentTool(root, "/convert/word-to-pdf", tool);
-    if (tool === "pdf-merge") submitDocumentTool(root, "/pdf/merge", tool);
-    if (tool === "pdf-split") submitDocumentTool(root, "/pdf/split", tool);
+    if (tool === "pdf-to-word")   submitDocumentTool(root, "/convert/pdf-to-word", tool);
+    if (tool === "word-to-pdf")   submitDocumentTool(root, "/convert/word-to-pdf", tool);
+    if (tool === "pdf-merge")     submitDocumentTool(root, "/pdf/merge", tool);
+    if (tool === "pdf-split")     submitDocumentTool(root, "/pdf/split", tool);
 
-    const toolHeading = document.querySelector(".tool-heading h1");
-    if (toolHeading && window.location.pathname.startsWith("/tools/")) {
-      localStorage.setItem(
-        LAST_TOOL_KEY,
-        JSON.stringify({
-          href: window.location.pathname,
-          title: toolHeading.textContent.trim(),
-          visitedAt: Date.now(),
-        }),
-      );
+    /* save last visited tool */
+    const heading = document.querySelector(".tool-heading h1");
+    if (heading && window.location.pathname.startsWith("/tools/")) {
+      localStorage.setItem(LAST_TOOL_KEY, JSON.stringify({
+        href: window.location.pathname,
+        title: heading.textContent.trim(),
+        visitedAt: Date.now(),
+      }));
     }
   });
 

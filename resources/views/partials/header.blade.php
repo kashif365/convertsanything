@@ -17,6 +17,6 @@
                 </div>
             @endforeach
         </nav>
-        <a href="{{ route('home') }}#tools" class="button primary small">Get Started</a>
+        <a href="{{ route('home') }}#tools" class="button primary small">Browse Tools</a>
     </div>
 </header>

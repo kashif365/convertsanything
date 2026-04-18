@@ -1787,3 +1787,84 @@ NOTES
 - Keep .env out of git commits.
 - If CONVERTAPI_SECRET is ever exposed, rotate it immediately.
 - Local behavior should match production when LibreOffice path and permissions are configured correctly.
+
+================================================================================
+19. APRIL 2026 — UI REDESIGN + IMAGE-TO-TEXT TOOL + SCALE SLIDER
+================================================================================
+
+CHANGES MADE IN THIS SESSION
+--------------------------------------------------------------------------------
+
+1. FULL UI REDESIGN — BLACK & WHITE PROFESSIONAL THEME
+   - Replaced the pink/red gradient theme (#f92748) with a clean monochrome design.
+   - Color system: --black #0d0d0d, --white #ffffff, --bg-alt #f5f5f5, --border #e0e0e0
+   - No gradients anywhere. Flat borders, clean hover states.
+   - Buttons: solid black primary, white+border secondary — no gradient.
+   - Cards: 1px border grid layout (cells separated by thin lines, no box-shadow).
+   - Footer: pure black background (#0d0d0d), white text.
+   - Header: white, sticky, 1px bottom border, minimal nav hover states.
+   - Tool icons: monochrome file badges (black text, no color tones).
+   - Typography: Poppins maintained, tighter letter-spacing on headings.
+   - Responsive breakpoints: 1024px, 760px, 520px.
+
+2. NEW TOOL: IMAGE TO TEXT (OCR)
+   - Route: POST /api/images/ocr
+   - Controller: app/Http/Controllers/Api/OcrController.php
+   - Service: app/Services/OcrService.php
+   - View: resources/views/tools/images/img-to-text.blade.php
+   - Backend: Uses OCR.space free API (HTTP request from PHP, works on shared hosting).
+     No Tesseract or Python dependency required.
+   - Supports 11 languages: English, Spanish, French, German, Italian, Portuguese,
+     Chinese (Simplified), Japanese, Korean, Arabic, Russian.
+   - Max file size: 5 MB (OCR.space free tier limit).
+   - Accepted formats: JPG, PNG, GIF, BMP.
+   - API key: configured via OCR_SPACE_API_KEY env var (default: 'helloworld' for testing).
+     Get a free key at ocr.space for 500 requests/day with 5 MB limit.
+   - Result: editable textarea, word/char count, Copy button, Download .txt button.
+   - Files are deleted immediately after OCR — not stored.
+   - Registered in config/tools.php under 'images' category.
+
+   ENV VARIABLE TO ADD:
+     OCR_SPACE_API_KEY=your_free_key_here
+     (Leave as 'helloworld' for testing — 1 MB limit on that key.)
+
+3. SCALE SLIDER ON ALL IMAGE TOOLS (real dimension control)
+   - All 5 image tools now have a data-scale-range slider (10% – 200%, default 100%).
+   - The slider controls actual output image dimensions, not just display.
+   - JavaScript reads the uploaded image's real dimensions using Image.naturalWidth/Height.
+   - The label shows live dimension preview: e.g. "1920 × 1080 → 960 × 540 px"
+   - The scale value is submitted to the backend as the 'scale' form parameter.
+   - Backend (ImageToolService::applyScale) proportionally resizes the image before
+     encoding/compressing, using Intervention Image's scale() method.
+   - ImageController updated to accept and validate 'scale' (integer 10–200) on all endpoints.
+   - The resizer tool scale slider also syncs the width/height number inputs.
+   - Compressor has both a scale slider and a quality slider.
+   - Size estimation in JS accounts for scale when projecting output file size.
+
+4. CONFIG UPDATES
+   - config/tools.php: Added 'ocr' section with api_key.
+   - config/tools.php: Added img-to-text to images category tools list and tool_pages.
+   - config/tools.php: Cleaned up descriptions for production quality.
+
+5. SHARED HOSTING COMPATIBILITY
+   - OCR uses PHP cURL (HTTP API call) — no system executables needed.
+   - Image scaling uses Intervention Image (GD driver) — no ImageMagick required.
+   - No queue workers, no background jobs — all processing is synchronous.
+   - LibreOffice is still required for Word/PDF document tools (server-side).
+
+PRODUCTION ENVIRONMENT ADDITIONS
+--------------------------------------------------------------------------------
+Add to .env (production):
+  OCR_SPACE_API_KEY=<your_ocr_space_api_key>
+
+Shared hosting checklist additions:
+  - Confirm PHP cURL extension is enabled (required for OCR API calls).
+  - Confirm GD extension is enabled (required for Intervention Image).
+  - No new system packages required for the image or OCR tools.
+
+TOOL COUNT (as of this session)
+--------------------------------------------------------------------------------
+Images:    6 tools (jpg-to-png, png-to-webp, image-converter, compressor, resizer, img-to-text)
+Documents: 4 tools (pdf-to-word, word-to-pdf, pdf-merge, pdf-split)
+Text:      2 tools (word-counter, case-converter)
+Total:     12 tools

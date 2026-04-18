@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\DocumentController;
 use App\Http\Controllers\Api\ImageController;
+use App\Http\Controllers\Api\OcrController;
 use App\Http\Controllers\Api\PdfController;
 use App\Http\Controllers\Api\TextController;
 use Illuminate\Support\Facades\Route;
@@ -12,6 +13,7 @@ Route::prefix('images')->group(function () {
     Route::post('/compress', [ImageController::class, 'compress']);
     Route::post('/resize', [ImageController::class, 'resize']);
     Route::post('/convert', [ImageController::class, 'convert']);
+    Route::post('/ocr', [OcrController::class, 'extract']);
 });
 
 Route::prefix('text')->group(function () {

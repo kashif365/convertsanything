@@ -6,7 +6,7 @@
                 <span class="brand-mark">CA</span>
                 <span class="brand-name">{{ config('tools.brand') }}</span>
             </a>
-            <p>Professional-grade file conversion tools. Fast, secure, and completely free.</p>
+            <p>Free file conversion tools for documents, images, and text. No signup required.</p>
         </div>
         @foreach($categories as $key => $category)
             <div>
@@ -20,7 +20,7 @@
         @endforeach
     </div>
     <div class="container footer-bottom">
-        <p>© {{ date('Y') }} {{ config('tools.brand') }}. All rights reserved.</p>
+        <p>&copy; {{ date('Y') }} {{ config('tools.brand') }}. All rights reserved.</p>
         <div class="footer-links">
             <a href="#">Privacy</a>
             <a href="#">Terms</a>

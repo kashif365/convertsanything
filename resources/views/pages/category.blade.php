@@ -3,7 +3,7 @@
 
 @section('content')
 <div class="container category-shell">
-    <a href="{{ route('home') }}" class="back-link">← Back to Home</a>
+    <a href="{{ route('home') }}" class="back-link">&larr; Back to Home</a>
     <div class="section-heading left">
         <div class="group-icon large">{{ strtoupper(substr($category['title'], 0, 1)) }}</div>
         <div>
@@ -14,11 +14,11 @@
     <div class="tool-grid">
         @foreach($category['tools'] as $tool)
             @include('partials.tool-card', [
-                'href' => url('/tools/' . $categoryKey . '/' . $tool['slug']),
-                'title' => $tool['title'],
+                'href'        => url('/tools/' . $categoryKey . '/' . $tool['slug']),
+                'title'       => $tool['title'],
                 'description' => $tool['description'],
-                'slug' => $tool['slug'],
-                'variant' => $category['variant'] ?? 'default',
+                'slug'        => $tool['slug'],
+                'variant'     => $category['variant'] ?? 'default',
             ])
         @endforeach
     </div>

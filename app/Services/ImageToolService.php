@@ -18,131 +18,131 @@ class ImageToolService
         $this->images = new ImageManager(new Driver());
     }
 
-    public function jpgToPng(array $files): array
+    public function jpgToPng(array $files, int $scale = 100): array
     {
         $downloads = [];
 
         foreach ($files as $file) {
-            $image = $this->readImage($file);
-            $encoded = $image->toPng();
+            $image      = $this->readImage($file);
+            $image      = $this->applyScale($image, $scale);
+            $encoded    = $image->toPng();
             $sourceSize = $this->bytes($file->getSize() ?: 0);
             $outputSize = $this->bytes($encoded->size());
 
-            $item = $this->storeEncoded(
-                $encoded,
-                pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME).'.png'
-            );
-            $item['note'] = sprintf('%s converted to PNG.', $file->getClientOriginalName());
+            $item          = $this->storeEncoded($encoded, pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME) . '.png');
+            $item['note']  = sprintf('%s converted to PNG.', $file->getClientOriginalName());
             $item['sizeLabel'] = sprintf('%s → %s', $sourceSize, $outputSize);
-            $downloads[] = $item;
+            $downloads[]   = $item;
         }
 
         return $this->response('Images converted to PNG.', $downloads);
     }
 
-    public function pngToWebp(array $files, int $quality): array
+    public function pngToWebp(array $files, int $quality, int $scale = 100): array
     {
         $downloads = [];
 
         foreach ($files as $file) {
-            $image = $this->readImage($file);
-            $encoded = $image->toWebp($quality);
-            $fallback = $image->toPng();
+            $image      = $this->readImage($file);
+            $image      = $this->applyScale($image, $scale);
+            $encoded    = $image->toWebp($quality);
+            $fallback   = $image->toPng();
             $sourceSize = $this->bytes($file->getSize() ?: 0);
             $outputSize = $this->bytes($encoded->size());
 
-            $item = $this->storeEncoded(
-                $encoded,
-                pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME).'.webp'
-            );
-            $item['fallback'] = $this->storeEncoded(
-                $fallback,
-                pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME).'-fallback.png'
-            );
-            $item['note'] = sprintf('%s converted to WebP at %d%% quality.', $file->getClientOriginalName(), $quality);
+            $item = $this->storeEncoded($encoded, pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME) . '.webp');
+            $item['fallback']  = $this->storeEncoded($fallback, pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME) . '-fallback.png');
+            $item['note']      = sprintf('%s converted to WebP at %d%% quality.', $file->getClientOriginalName(), $quality);
             $item['sizeLabel'] = sprintf('%s → %s', $sourceSize, $outputSize);
-            $downloads[] = $item;
+            $downloads[]       = $item;
         }
 
         return $this->response('Images converted to WebP.', $downloads);
     }
 
-    public function compress(array $files, int $quality, string $format): array
+    public function compress(array $files, int $quality, string $format, int $scale = 100): array
     {
         $downloads = [];
 
         foreach ($files as $file) {
-            $image = $this->readImage($file);
+            $image        = $this->readImage($file);
+            $image        = $this->applyScale($image, $scale);
             $targetFormat = $this->resolveCompressionFormat($file, $format);
-            $encoded = $this->encodeByFormat($image, $targetFormat, $quality);
-            $sourceSize = $this->bytes($file->getSize() ?: 0);
-            $outputSize = $this->bytes($encoded->size());
+            $encoded      = $this->encodeByFormat($image, $targetFormat, $quality);
+            $sourceSize   = $this->bytes($file->getSize() ?: 0);
+            $outputSize   = $this->bytes($encoded->size());
 
-            $item = $this->storeEncoded(
-                $encoded,
-                pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME).'.'.$this->extensionForFormat($targetFormat)
-            );
+            $item = $this->storeEncoded($encoded, pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME) . '.' . $this->extensionForFormat($targetFormat));
 
             if ($targetFormat === 'image/webp') {
-                $item['fallback'] = $this->storeEncoded(
-                    $image->toPng(),
-                    pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME).'-fallback.png'
-                );
+                $item['fallback'] = $this->storeEncoded($image->toPng(), pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME) . '-fallback.png');
             }
 
-            $item['note'] = sprintf('%s compressed successfully.', $file->getClientOriginalName());
+            $item['note']      = sprintf('%s compressed successfully.', $file->getClientOriginalName());
             $item['sizeLabel'] = sprintf('%s → %s', $sourceSize, $outputSize);
-            $downloads[] = $item;
+            $downloads[]       = $item;
         }
 
         return $this->response('Images compressed successfully.', $downloads);
     }
 
-    public function resize(array $files, int $width, int $height, bool $lockAspect): array
+    public function resize(array $files, int $width, int $height, bool $lockAspect, int $scale = 100): array
     {
         $downloads = [];
 
         foreach ($files as $file) {
             $image = $this->readImage($file);
-            $processed = $lockAspect ? $image->scale($width, $height) : $image->resize($width, $height);
-            $format = $this->normalizeMime($file->getMimeType() ?: 'image/png');
-            $encoded = $this->encodeByFormat($processed, $format, 92);
+
+            if ($scale !== 100) {
+                $image = $this->applyScale($image, $scale);
+            }
+
+            $processed  = $lockAspect ? $image->scale($width, $height) : $image->resize($width, $height);
+            $format     = $this->normalizeMime($file->getMimeType() ?: 'image/jpeg');
+            $encoded    = $this->encodeByFormat($processed, $format, 92);
             $sourceSize = $this->bytes($file->getSize() ?: 0);
             $outputSize = $this->bytes($encoded->size());
 
-            $item = $this->storeEncoded(
-                $encoded,
-                pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME).'.'.$this->extensionForFormat($format)
-            );
-            $item['note'] = sprintf('%s resized to %dx%d.', $file->getClientOriginalName(), $processed->width(), $processed->height());
+            $item          = $this->storeEncoded($encoded, pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME) . '.' . $this->extensionForFormat($format));
+            $item['note']  = sprintf('%s resized to %dx%d.', $file->getClientOriginalName(), $processed->width(), $processed->height());
             $item['sizeLabel'] = sprintf('%s → %s', $sourceSize, $outputSize);
-            $downloads[] = $item;
+            $downloads[]   = $item;
         }
 
         return $this->response('Images resized successfully.', $downloads);
     }
 
-    public function convertAny(array $files, string $format, int $quality): array
+    public function convertAny(array $files, string $format, int $quality, int $scale = 100): array
     {
         $downloads = [];
 
         foreach ($files as $file) {
-            $image = $this->readImage($file);
+            $image        = $this->readImage($file);
+            $image        = $this->applyScale($image, $scale);
             $targetFormat = $this->normalizeTargetFormat($format);
-            $encoded = $this->encodeByFormat($image, $targetFormat, $quality);
-            $sourceSize = $this->bytes($file->getSize() ?: 0);
-            $outputSize = $this->bytes($encoded->size());
+            $encoded      = $this->encodeByFormat($image, $targetFormat, $quality);
+            $sourceSize   = $this->bytes($file->getSize() ?: 0);
+            $outputSize   = $this->bytes($encoded->size());
 
-            $item = $this->storeEncoded(
-                $encoded,
-                pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME).'.'.$this->extensionForFormat($targetFormat)
-            );
-            $item['note'] = sprintf('%s converted to %s.', $file->getClientOriginalName(), strtoupper($this->extensionForFormat($targetFormat)));
+            $item          = $this->storeEncoded($encoded, pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME) . '.' . $this->extensionForFormat($targetFormat));
+            $item['note']  = sprintf('%s converted to %s.', $file->getClientOriginalName(), strtoupper($this->extensionForFormat($targetFormat)));
             $item['sizeLabel'] = sprintf('%s → %s', $sourceSize, $outputSize);
-            $downloads[] = $item;
+            $downloads[]   = $item;
         }
 
         return $this->response('Images converted successfully.', $downloads);
+    }
+
+    private function applyScale(ImageInterface $image, int $scale): ImageInterface
+    {
+        if ($scale === 100 || $scale <= 0) {
+            return $image;
+        }
+
+        $newWidth  = (int) max(1, round($image->width()  * $scale / 100));
+        $newHeight = (int) max(1, round($image->height() * $scale / 100));
+
+        return $image->scale($newWidth, $newHeight);
     }
 
     private function response(string $message, array $downloads): array
@@ -150,11 +150,11 @@ class ImageToolService
         $first = $downloads[0] ?? ['filename' => null, 'downloadUrl' => null];
 
         return [
-            'success' => true,
-            'message' => $message,
-            'filename' => $first['filename'],
+            'success'     => true,
+            'message'     => $message,
+            'filename'    => $first['filename'],
             'downloadUrl' => $first['downloadUrl'],
-            'downloads' => $downloads,
+            'downloads'   => $downloads,
         ];
     }
 
@@ -166,9 +166,9 @@ class ImageToolService
     private function encodeByFormat(ImageInterface $image, string $format, int $quality): EncodedImageInterface
     {
         return match ($format) {
-            'image/png' => $image->toPng(),
+            'image/png'  => $image->toPng(),
             'image/webp' => $image->toWebp($quality),
-            default => $image->toJpeg($quality),
+            default      => $image->toJpeg($quality),
         };
     }
 
@@ -190,38 +190,38 @@ class ImageToolService
     {
         return match ($mime) {
             'image/jpg' => 'image/jpeg',
-            default => $mime,
+            default     => $mime,
         };
     }
 
     private function normalizeTargetFormat(string $format): string
     {
         return match ($format) {
-            'image/png' => 'image/png',
+            'image/png'  => 'image/png',
             'image/webp' => 'image/webp',
-            default => 'image/jpeg',
+            default      => 'image/jpeg',
         };
     }
 
     private function extensionForFormat(string $format): string
     {
         return match ($format) {
-            'image/png' => 'png',
+            'image/png'  => 'png',
             'image/webp' => 'webp',
-            default => 'jpg',
+            default      => 'jpg',
         };
     }
 
     private function bytes(int $bytes): string
     {
         if ($bytes < 1024) {
-            return $bytes.' B';
+            return $bytes . ' B';
         }
 
         if ($bytes < 1024 * 1024) {
-            return round($bytes / 1024, 1).' KB';
+            return round($bytes / 1024, 1) . ' KB';
         }
 
-        return round($bytes / 1024 / 1024, 1).' MB';
+        return round($bytes / 1024 / 1024, 1) . ' MB';
     }
 }
