@@ -40,6 +40,7 @@ return [
             ],
         ],
         'documents' => [
+            'hidden'      => true,
             'title'       => 'Document Tools',
             'description' => 'Convert and manipulate PDF and Word documents server-side.',
             'emoji'       => '📄',

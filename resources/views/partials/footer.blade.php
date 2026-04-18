@@ -6,7 +6,7 @@
                 <span class="brand-mark">CA</span>
                 <span class="brand-name">{{ config('tools.brand') }}</span>
             </a>
-            <p>Free file conversion tools for documents, images, and text. No signup required.</p>
+            <p>Free file conversion tools for images and text. No signup required.</p>
         </div>
         @foreach($categories as $key => $category)
             <div>

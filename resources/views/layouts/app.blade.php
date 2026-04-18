@@ -17,11 +17,12 @@
     <link rel="stylesheet" href="{{ asset('assets/app.css') }}">
 </head>
 <body>
-    @include('partials.header', ['categories' => config('tools.categories')])
+    @php $visibleCategories = array_filter(config('tools.categories'), fn($c) => empty($c['hidden'])); @endphp
+    @include('partials.header', ['categories' => $visibleCategories])
     <main class="site-main">
         @yield('content')
     </main>
-    @include('partials.footer', ['categories' => config('tools.categories')])
+    @include('partials.footer', ['categories' => $visibleCategories])
     <script>
         window.appConfig = {
             apiBaseUrl: "{{ url('/api') }}",

@@ -19,11 +19,11 @@
         <div class="tool-tabs" role="tablist" aria-label="Tool categories">
             <button class="tool-tab is-active" type="button" role="tab" aria-selected="true"  data-tool-tab="all">All Tools</button>
             <button class="tool-tab" type="button" role="tab" aria-selected="false" data-tool-tab="images">Images</button>
-            <button class="tool-tab" type="button" role="tab" aria-selected="false" data-tool-tab="documents">Documents</button>
             <button class="tool-tab" type="button" role="tab" aria-selected="false" data-tool-tab="text">Text</button>
         </div>
         <div class="tool-grid home-grid" data-tool-grid>
             @foreach($categories as $key => $category)
+                @if(!empty($category['hidden'])) @continue @endif
                 @foreach($category['tools'] as $tool)
                     <div data-tool-category="{{ $key }}">
                         @include('partials.tool-card', [
