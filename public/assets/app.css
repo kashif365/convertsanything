@@ -176,6 +176,15 @@ a { color: inherit; text-decoration: none; }
 .tool-notes h4 { margin: 0 0 7px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .tool-notes ul { margin: 0; padding-left: 16px; color: var(--muted); display: grid; gap: 4px; font-size: 13px; line-height: 1.5; }
 
+/* ─── Image preview thumb in file list ─── */
+.file-thumb { width: 52px; min-width: 52px; height: 52px; border-radius: 7px; object-fit: cover; border: 1px solid var(--border); display: block; background: var(--bg-alt); }
+.file-item.has-thumb { gap: 10px; }
+.file-item.has-thumb main { min-width: 0; }
+
+/* ─── Home section spacing ─── */
+.resume-section { padding: 0 0 12px; }
+.resume-section .resume-card { margin-top: -8px; }
+
 /* ─── OCR result ─── */
 .ocr-result { margin-top: 14px; }
 .ocr-result textarea { min-height: 200px; background: var(--bg-alt); }

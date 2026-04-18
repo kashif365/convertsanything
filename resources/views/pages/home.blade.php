@@ -5,25 +5,21 @@
 
 <section class="hero">
     <div class="container hero-inner">
-        <span class="eyebrow">Free Online File Conversion</span>
-        <h1>Convert files.<br>No fuss, no signup.</h1>
-        <p>Documents, images, and text — processed directly on the server. Clean output every time.</p>
+        <span class="eyebrow">Free Online File Conversion — No Signup</span>
+        <h1>Convert files.<br>Download instantly.</h1>
+        <p>Images, documents, and text tools. Upload a file and get a result in seconds.</p>
         <div class="hero-actions">
-            <a href="#tools" class="button primary">Browse Tools</a>
-            <a href="#how-it-works" class="button secondary">How It Works</a>
+            <a href="#tools" class="button primary">Browse All Tools</a>
         </div>
     </div>
 </section>
+
 <section id="tools" class="section">
     <div class="container">
-        <div class="section-heading center">
-            <h2>All Tools</h2>
-            <p>Pick a category or browse everything below.</p>
-        </div>
         <div class="tool-tabs" role="tablist" aria-label="Tool categories">
-            <button class="tool-tab is-active" type="button" role="tab" aria-selected="true"  data-tool-tab="all">All</button>
+            <button class="tool-tab is-active" type="button" role="tab" aria-selected="true"  data-tool-tab="all">All Tools</button>
             <button class="tool-tab" type="button" role="tab" aria-selected="false" data-tool-tab="images">Images</button>
-            {{-- <button class="tool-tab" type="button" role="tab" aria-selected="false" data-tool-tab="documents">Documents</button> --}}
+            <button class="tool-tab" type="button" role="tab" aria-selected="false" data-tool-tab="documents">Documents</button>
             <button class="tool-tab" type="button" role="tab" aria-selected="false" data-tool-tab="text">Text</button>
         </div>
         <div class="tool-grid home-grid" data-tool-grid>
@@ -44,7 +40,7 @@
     </div>
 </section>
 
-{{-- <section class="section">
+<section class="resume-section">
     <div class="container">
         <div class="resume-card" data-last-tool-card hidden>
             <div>
@@ -57,13 +53,13 @@
             </div>
         </div>
     </div>
-</section> --}}
+</section>
 
 <section id="how-it-works" class="section muted">
     <div class="container">
         <div class="section-heading center">
-            <h2>Simple. Reliable. Private.</h2>
-            <p>No accounts, no ads, no data harvesting. Just tools that work.</p>
+            <h2>Simple. Private. Fast.</h2>
+            <p>No accounts, no ads. Upload a file, get the result.</p>
         </div>
         <div class="feature-grid">
             @foreach($features as $feature)
@@ -77,31 +73,4 @@
     </div>
 </section>
 
-
-
-<section class="section muted">
-    <div class="container">
-        <div class="section-heading center">
-            <h2>Why {{ config('tools.brand') }}?</h2>
-            <p>Built for real work, not just demos.</p>
-        </div>
-        <div class="feature-grid">
-            <article class="feature-card">
-                <span class="feature-emoji">🔒</span>
-                <h3>Files Are Not Stored</h3>
-                <p>Uploaded files are deleted automatically after processing. Nothing is kept on our servers longer than necessary.</p>
-            </article>
-            <article class="feature-card">
-                <span class="feature-emoji">⚙️</span>
-                <h3>Server-Side Processing</h3>
-                <p>Conversions run on the server using proven libraries — LibreOffice, Intervention Image, and FPDI.</p>
-            </article>
-            <article class="feature-card">
-                <span class="feature-emoji">📱</span>
-                <h3>Works on Any Device</h3>
-                <p>No software to install. Open a browser, upload a file, download the result. That's it.</p>
-            </article>
-        </div>
-    </div>
-</section>
 @endsection

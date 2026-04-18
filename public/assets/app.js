@@ -120,12 +120,24 @@
   /* ─── File manager (dropzone) ─── */
   function createFileManager(root) {
     const state = { files: [] };
+    const blobUrls = new Map(); /* file → object URL for image previews */
     const list = root.querySelector("[data-file-list]");
     const error = root.querySelector("[data-error]");
     const dropzone = root.querySelector("[data-dropzone]");
     const hideDropzoneOnFiles = dropzone && dropzone.dataset.hideOnFiles === "true";
     const input = dropzone.querySelector('input[type="file"]');
     let dropzoneFiles = null;
+
+    const getBlobUrl = (file) => {
+      if (!file.type.startsWith("image/")) return null;
+      if (!blobUrls.has(file)) blobUrls.set(file, URL.createObjectURL(file));
+      return blobUrls.get(file);
+    };
+
+    const revokeFile = (file) => {
+      const url = blobUrls.get(file);
+      if (url) { URL.revokeObjectURL(url); blobUrls.delete(file); }
+    };
 
     if (dropzone) {
       dropzoneFiles = dropzone.querySelector("[data-dropzone-files]");
@@ -196,16 +208,27 @@
       }
 
       state.files.forEach((file, index) => {
+        const thumbUrl = getBlobUrl(file);
         const item = document.createElement("div");
-        item.className = hideDropzoneOnFiles ? "file-item in-dropzone" : "file-item";
-        item.innerHTML = `
-          <main>
-            <h4>${file.name}</h4>
-            <p>${formatBytes(file.size)} &middot; Ready</p>
-          </main>
-          <div class="item-actions"></div>`;
+        item.className = (hideDropzoneOnFiles ? "file-item in-dropzone" : "file-item") + (thumbUrl ? " has-thumb" : "");
 
-        const actions = item.querySelector(".item-actions");
+        if (thumbUrl) {
+          const img = document.createElement("img");
+          img.src = thumbUrl;
+          img.className = "file-thumb";
+          img.alt = file.name;
+          item.appendChild(img);
+        }
+
+        const main = document.createElement("main");
+        main.innerHTML = `<h4>${file.name}</h4><p>${formatBytes(file.size)} &middot; Ready</p>`;
+        item.appendChild(main);
+
+        const actionsDiv = document.createElement("div");
+        actionsDiv.className = "item-actions";
+        item.appendChild(actionsDiv);
+
+        const actions = actionsDiv;
 
         if (root.dataset.tool === "pdf-merge") {
           [["Up", -1], ["Down", 1]].forEach(([label, step]) => {
@@ -230,6 +253,7 @@
         remove.type = "button";
         remove.textContent = "Remove";
         remove.addEventListener("click", () => {
+          revokeFile(state.files[index]);
           state.files.splice(index, 1);
           render();
           syncButtons();
@@ -277,6 +301,8 @@
 
     const reset = () => {
       showError("");
+      state.files.forEach(revokeFile);
+      blobUrls.clear();
       state.files = [];
       render();
       syncButtons();
